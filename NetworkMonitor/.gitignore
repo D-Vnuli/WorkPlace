@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.pyc
+
+# Virtual environments
+.venv/
+venv/
+
+# PyCharm
+.idea/
+
+# Build files
+build/
+dist/
+
+# Databases
+*.db
+
+# Configs
+config.json
+
+# Logs
+*.log
+
+# PyInstaller
+*.spec

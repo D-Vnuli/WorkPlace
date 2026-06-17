@@ -1,0 +1,1300 @@
+import os
+import sys
+import subprocess
+import webbrowser
+from PyQt6.QtWidgets import QHeaderView
+from datetime import datetime
+from PyQt6.QtGui import QIcon
+from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QColor
+from PyQt6.QtWidgets import (
+    QApplication,
+    QMainWindow,
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QPushButton,
+    QTreeWidget,
+    QTreeWidgetItem,
+    QInputDialog,
+    QMessageBox,
+    QLabel,
+    QFileDialog,
+    QTabWidget,
+    QTableWidget,
+    QTableWidgetItem,
+    QMenu,
+    QAbstractItemView,
+    QSystemTrayIcon,
+    QDialog,
+    QFormLayout,
+    QLineEdit,
+    QDialogButtonBox
+)
+
+from database import Database
+from ping_worker import PingWorker
+from notifications import NotificationManager
+from PyQt6.QtWidgets import QFileDialog
+from config_manager import set_database_path, get_database_path, export_database
+
+
+OFFLINE_DELAY_SECONDS = 60
+
+
+def resource_path(relative_path):
+    try:
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+
+    return os.path.join(base_path, relative_path)
+
+
+class DeviceTreeWidget(QTreeWidget):
+    device_moved = pyqtSignal(int, object)
+
+    def dropEvent(self, event):
+        moved_item = self.currentItem()
+
+        if not moved_item:
+            super().dropEvent(event)
+            return
+
+        device_id = moved_item.data(0, Qt.ItemDataRole.UserRole)
+
+        super().dropEvent(event)
+
+        new_parent = moved_item.parent()
+
+        if new_parent:
+            parent_id = new_parent.data(0, Qt.ItemDataRole.UserRole)
+        else:
+            parent_id = None
+
+        self.device_moved.emit(device_id, parent_id)
+
+
+class DevicePropertiesDialog(QDialog):
+
+    def __init__(
+            self,
+            name,
+            ip,
+            device_type,
+            status,
+            last_seen,
+            parent=None):
+
+        super().__init__(parent)
+
+        self.setWindowTitle("Свойства")
+
+        layout = QFormLayout(self)
+
+        self.name_input = QLineEdit(name)
+        self.ip_input = QLineEdit(ip if ip else "")
+
+        layout.addRow(
+            "Название:",
+            self.name_input
+        )
+
+        if device_type != "group":
+
+            layout.addRow(
+                "IP адрес:",
+                self.ip_input
+            )
+
+        else:
+
+            self.ip_input.setEnabled(False)
+
+        lbl_status = QLabel(
+            status if status else "unknown"
+        )
+
+        if last_seen:
+
+            try:
+
+                from datetime import datetime
+
+                dt = datetime.strptime(
+                    last_seen,
+                    "%Y-%m-%d %H:%M:%S"
+                )
+
+                last_seen = dt.strftime(
+                    "%H:%M %d-%m-%Y"
+                )
+
+            except Exception:
+                pass
+
+        lbl_last_seen = QLabel(
+            last_seen if last_seen else "Нет данных"
+        )
+
+        layout.addRow(
+            "Статус:",
+            lbl_status
+        )
+
+        layout.addRow(
+            "Последний ответ:",
+            lbl_last_seen
+        )
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok |
+            QDialogButtonBox.StandardButton.Cancel
+        )
+
+        buttons.accepted.connect(
+            self.accept
+        )
+
+        buttons.rejected.connect(
+            self.reject
+        )
+
+        layout.addWidget(buttons)
+
+    def get_data(self):
+
+        return (
+            self.name_input.text().strip(),
+            self.ip_input.text().strip()
+        )
+
+
+class MainWindow(QMainWindow):
+
+    def __init__(self):
+        super().__init__()
+
+        self.db = Database()
+        self.properties_window_open = False
+        self.notifications = NotificationManager(self)
+        self.pending_offline = {}
+        self.force_exit = False
+
+        self.setWindowTitle("Network Monitor")
+        app_icon = QIcon(resource_path("icons/icon-monitor.png"))
+
+        self.setWindowIcon(app_icon)
+
+        self.setup_ui()
+        self.setup_tray_menu()
+        self.restore_window_settings()
+        self.load_devices()
+        self.load_events()
+        self.show_startup_offline_notifications()
+
+        self.ping_worker = PingWorker()
+
+        self.ping_worker.device_status_changed.connect(
+            self.on_device_status_changed
+        )
+
+        self.refresh_ping_worker()
+        self.ping_worker.start()
+
+    def setup_ui(self):
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+
+        main_layout = QVBoxLayout(central_widget)
+
+        top_layout = QHBoxLayout()
+
+        self.btn_add_group = QPushButton("Добавить группу")
+        self.btn_add_device = QPushButton("Добавить устройство")
+
+        self.lbl_online = QLabel("🟢 В сети: 0")
+        self.lbl_offline = QLabel("🔴 Не в сети: 0")
+
+        top_layout.addWidget(self.btn_add_group)
+        top_layout.addWidget(self.btn_add_device)
+        top_layout.addStretch()
+        top_layout.addWidget(self.lbl_online)
+        top_layout.addWidget(self.lbl_offline)
+
+        main_layout.addLayout(top_layout)
+
+        self.tabs = QTabWidget()
+        main_layout.addWidget(self.tabs)
+
+        devices_tab = QWidget()
+        devices_layout = QVBoxLayout(devices_tab)
+
+        self.tree = DeviceTreeWidget()
+        self.tree.setColumnCount(3)
+        self.tree.setAlternatingRowColors(True)
+        self.tree.setRootIsDecorated(True)
+        self.tree.setUniformRowHeights(True)
+        self.tree.setAnimated(True)
+        self.tree.setIndentation(22)
+
+        self.tree.setStyleSheet("""
+        QTreeWidget {
+            background-color: white;
+            alternate-background-color: #F9FAFB;
+            color: #111827;
+            border: 1px solid #D1D5DB;
+            border-radius: 8px;
+            padding: 4px;
+        }
+
+        QTreeWidget::item {
+            height: 34px;
+             padding: 4px;
+            border-radius: 4px;
+        }
+
+        QTreeWidget::item:selected {
+            background-color: #DBEAFE;
+        }
+
+        QTreeWidget::item:selected:active {
+            background-color: #DBEAFE;
+            color: #111827;
+        }
+
+        QTreeWidget::item:selected:!active {
+            background-color: #DBEAFE;
+            color: #111827;
+        }
+
+        QTreeWidget::item:hover {
+            background-color: #EFF6FF;
+        }
+
+        QHeaderView::section {
+            background-color: #F3F4F6;
+            color: #374151;
+            border: none;
+            border-bottom: 1px solid #D1D5DB;
+            padding: 8px;
+            font-weight: bold;
+        }
+        """)
+
+        self.tree.setHeaderLabels([
+            "Устройство",
+            "IP адрес",
+            "Состояние"
+        ])
+
+        self.tree.setRootIsDecorated(True)
+        self.tree.setIndentation(28)
+        self.tree.setAlternatingRowColors(True)
+        self.tree.setAnimated(True)
+        self.tree.setUniformRowHeights(True)
+        self.tree.setDragEnabled(True)
+        self.tree.setAcceptDrops(True)
+        self.tree.setDropIndicatorShown(True)
+        self.tree.setDragDropMode(
+            QAbstractItemView.DragDropMode.InternalMove
+        )
+        self.tree.setDefaultDropAction(
+            Qt.DropAction.MoveAction
+        )
+
+        devices_layout.addWidget(self.tree)
+        header = self.tree.header()
+
+        header.setStretchLastSection(False)
+        header.setSectionResizeMode(
+            0,
+            QHeaderView.ResizeMode.Stretch
+        )
+        header.setSectionResizeMode(
+            1,
+            QHeaderView.ResizeMode.Fixed
+        )
+        header.setSectionResizeMode(
+            2,
+            QHeaderView.ResizeMode.Fixed
+        )
+
+        self.tree.setColumnWidth(1, 160)
+        self.tree.setColumnWidth(2, 140)
+        self.tabs.addTab(devices_tab, "Устройства")
+
+        log_tab = QWidget()
+        log_layout = QVBoxLayout(log_tab)
+
+        self.btn_clear_log = QPushButton("Очистить журнал")
+        self.btn_clear_log.clicked.connect(self.clear_log)
+
+        log_layout.addWidget(self.btn_clear_log)
+
+        self.log_table = QTableWidget()
+        self.log_table.setStyleSheet("""
+        QHeaderView::section {
+            background-color: #E8E8E8;
+            border: 1px solid #B0B0B0;
+            padding: 4px;
+            font-weight: bold;
+        }
+
+        QTableWidget {
+            gridline-color: #D0D0D0;
+        }
+        """)
+        self.log_table.setColumnCount(4)
+
+        self.log_table.setAlternatingRowColors(True)
+        self.log_table.setShowGrid(True)
+
+        self.log_table.setHorizontalHeaderLabels([
+            "Время",
+            "Устройство",
+            "IP",
+            "Событие"
+        ])
+
+        self.log_table.setEditTriggers(
+            QAbstractItemView.EditTrigger.NoEditTriggers
+        )
+
+        self.log_table.setSelectionBehavior(
+            QAbstractItemView.SelectionBehavior.SelectRows
+        )
+
+        header = self.log_table.horizontalHeader()
+
+        header.setSectionResizeMode(
+            0,
+            QHeaderView.ResizeMode.Fixed
+        )
+
+        header.setSectionResizeMode(
+            1,
+            QHeaderView.ResizeMode.Stretch
+        )
+
+        header.setSectionResizeMode(
+            2,
+            QHeaderView.ResizeMode.Fixed
+        )
+
+        header.setSectionResizeMode(
+            3,
+            QHeaderView.ResizeMode.Stretch
+        )
+
+        self.log_table.setColumnWidth(0, 140)
+        self.log_table.setColumnWidth(2, 150)
+
+        self.log_table.verticalHeader().setVisible(False)
+
+        log_layout.addWidget(self.log_table)
+        self.tabs.addTab(log_tab, "Журнал")
+        database_tab = QWidget()
+        database_layout = QVBoxLayout(database_tab)
+
+        self.lbl_database_path = QLabel(
+            f"Текущая база данных:\n{get_database_path()}"
+        )
+
+        self.lbl_database_path.setWordWrap(True)
+
+        self.btn_select_db = QPushButton("Выбрать базу")
+        self.btn_save_db = QPushButton("Сохранить базу")
+
+        database_layout.addWidget(self.lbl_database_path)
+        database_layout.addWidget(self.btn_select_db)
+        database_layout.addWidget(self.btn_save_db)
+        database_layout.addStretch()
+
+        self.tabs.addTab(database_tab, "База данных")
+
+        self.btn_select_db.clicked.connect(
+            self.select_database
+        )
+
+        self.btn_save_db.clicked.connect(
+            self.save_database_file
+        )
+
+        self.btn_add_group.clicked.connect(self.add_group)
+        self.btn_add_device.clicked.connect(self.add_device)
+
+        self.tree.setContextMenuPolicy(
+            Qt.ContextMenuPolicy.CustomContextMenu
+        )
+
+        self.tree.customContextMenuRequested.connect(
+            self.show_context_menu
+        )
+
+        self.tree.device_moved.connect(
+            self.on_device_moved
+        )
+
+    def setup_tray_menu(self):
+        tray_menu = QMenu(self)
+
+        open_action = tray_menu.addAction("Открыть")
+        exit_action = tray_menu.addAction("Выход")
+
+        open_action.triggered.connect(self.restore_from_tray)
+        exit_action.triggered.connect(self.exit_application)
+
+        tray_icon = QIcon(resource_path("icons/icon-monitor.png"))
+
+        self.notifications.tray_icon.setIcon(tray_icon)
+        self.notifications.tray_icon.setToolTip("Network Monitor")
+        self.notifications.tray_icon.setContextMenu(tray_menu)
+        self.notifications.tray_icon.show()
+
+        self.notifications.tray_icon.activated.connect(
+            self.on_tray_activated
+        )
+
+    def on_tray_activated(self, reason):
+        if reason == QSystemTrayIcon.ActivationReason.DoubleClick:
+            self.restore_from_tray()
+
+    def restore_from_tray(self):
+        self.show()
+        self.showNormal()
+        self.raise_()
+        self.activateWindow()
+
+    def exit_application(self):
+        self.force_exit = True
+
+        self.save_expanded_items()
+        self.save_window_settings()
+
+        if hasattr(self, "ping_worker"):
+            self.ping_worker.stop()
+            self.ping_worker.wait()
+
+        if hasattr(self, "notifications"):
+            self.notifications.tray_icon.hide()
+
+        QApplication.quit()
+
+    def show_startup_offline_notifications(self):
+        devices = self.db.get_unacknowledged_offline_devices()
+
+        for device in devices:
+            device_id = device[0]
+            name = device[1]
+            ip = device[2]
+
+            self.notifications.device_offline(
+                device_id,
+                name,
+                ip
+            )
+
+    def restore_window_settings(self):
+        width = int(self.db.get_setting("window_width", 1000))
+        height = int(self.db.get_setting("window_height", 700))
+
+        self.resize(width, height)
+
+        self.tree.setColumnWidth(
+            0,
+            int(self.db.get_setting("tree_column_0_width", 350))
+        )
+
+        self.tree.setColumnWidth(
+            1,
+            int(self.db.get_setting("tree_column_1_width", 160))
+        )
+
+        self.tree.setColumnWidth(
+            2,
+            int(self.db.get_setting("tree_column_2_width", 120))
+        )
+
+    def save_window_settings(self):
+        self.db.set_setting("window_width", str(self.width()))
+        self.db.set_setting("window_height", str(self.height()))
+        self.db.set_setting("tree_column_0_width", str(self.tree.columnWidth(0)))
+        self.db.set_setting("tree_column_1_width", str(self.tree.columnWidth(1)))
+        self.db.set_setting("tree_column_2_width", str(self.tree.columnWidth(2)))
+
+    def get_expanded_items(self):
+        expanded = set()
+
+        def walk(item):
+            device_id = item.data(0, Qt.ItemDataRole.UserRole)
+
+            if item.isExpanded():
+                expanded.add(device_id)
+
+            for index in range(item.childCount()):
+                walk(item.child(index))
+
+        for index in range(self.tree.topLevelItemCount()):
+            walk(self.tree.topLevelItem(index))
+
+        return expanded
+
+    def save_expanded_items(self):
+        expanded_items = self.get_expanded_items()
+
+        value = ",".join(
+            str(device_id)
+            for device_id in expanded_items
+        )
+
+        self.db.set_setting(
+            "expanded_items",
+            value
+        )
+
+    def get_saved_expanded_items(self):
+        value = self.db.get_setting(
+            "expanded_items",
+            ""
+        )
+
+        if not value:
+            return set()
+
+        return set(
+            int(item)
+            for item in value.split(",")
+            if item.strip().isdigit()
+        )
+
+    def load_events(self):
+        events = self.db.get_events()
+
+        self.log_table.setRowCount(len(events))
+
+        for row_index, row in enumerate(events):
+            timestamp = row[0]
+            try:
+
+                dt = datetime.strptime(
+                    timestamp,
+                    "%Y-%m-%d %H:%M:%S"
+                )
+
+                timestamp = dt.strftime(
+                    "%H:%M %d-%m-%Y"
+                )
+
+            except Exception:
+                pass
+            device_name = row[1]
+            ip = row[2]
+            event = row[3]
+
+            time_item = QTableWidgetItem(timestamp)
+            time_item.setTextAlignment(
+                Qt.AlignmentFlag.AlignCenter
+            )
+
+            device_item = QTableWidgetItem(device_name)
+            device_item.setTextAlignment(
+                Qt.AlignmentFlag.AlignCenter
+            )
+
+            ip_item = QTableWidgetItem(
+                ip if ip else ""
+            )
+            ip_item.setTextAlignment(
+                Qt.AlignmentFlag.AlignCenter
+            )
+
+            event_item = QTableWidgetItem(event)
+            event_item.setTextAlignment(
+                Qt.AlignmentFlag.AlignCenter
+            )
+
+            self.log_table.setItem(
+                row_index,
+                0,
+                time_item
+            )
+
+            self.log_table.setItem(
+                row_index,
+                1,
+                device_item
+            )
+
+            self.log_table.setItem(
+                row_index,
+                2,
+                ip_item
+            )
+
+            self.log_table.setItem(
+                row_index,
+                3,
+                event_item
+            )
+
+    def clear_log(self):
+        result = QMessageBox.question(
+            self,
+            "Очистка журнала",
+            "Вы действительно хотите очистить журнал событий?"
+        )
+
+        if result == QMessageBox.StandardButton.Yes:
+            self.db.clear_events()
+            self.load_events()
+
+    def add_event_to_log(self, device_name, ip, event_text):
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        self.db.add_event(
+            timestamp,
+            device_name,
+            ip,
+            event_text
+        )
+
+        self.load_events()
+
+    def on_device_moved(self, device_id, parent_id):
+        self.db.update_device_parent(
+            device_id,
+            parent_id
+        )
+
+        self.load_devices()
+
+    def refresh_ping_worker(self):
+        if not hasattr(self, "ping_worker"):
+            return
+
+        devices = []
+
+        for row in self.db.get_devices():
+            device_id = row[0]
+            ip = row[3]
+            device_type = row[4]
+
+            if device_type == "group":
+                continue
+
+            if not ip:
+                continue
+
+            devices.append((device_id, ip))
+
+        self.ping_worker.update_devices(devices)
+
+    def on_device_status_changed(self, device_id, new_status):
+        device = self.db.get_device_by_id(device_id)
+
+        if not device:
+            return
+
+        device_name = device[2]
+        ip = device[3]
+        old_status = device[5]
+
+        now = datetime.now()
+
+        if new_status == "online":
+
+            self.db.update_last_seen(
+                device_id
+            )
+
+            if device_id in self.pending_offline:
+                del self.pending_offline[device_id]
+
+            if old_status != "online":
+                self.db.update_status(
+                    device_id,
+                    "online"
+                )
+
+                if old_status == "offline":
+                    self.add_event_to_log(
+                        device_name,
+                        ip,
+                        "Связь восстановлена"
+                    )
+
+                    self.notifications.device_online(
+                        device_id,
+                        device_name,
+                        ip
+                    )
+
+                if not self.properties_window_open:
+                    self.load_devices()
+
+            return
+
+        if new_status == "offline":
+            if old_status == "offline":
+                return
+
+            if device_id not in self.pending_offline:
+                self.pending_offline[device_id] = now
+                return
+
+            first_loss_time = self.pending_offline[device_id]
+
+            seconds_offline = (
+                    now - first_loss_time
+            ).total_seconds()
+
+            if seconds_offline < OFFLINE_DELAY_SECONDS:
+                return
+
+            self.db.update_status(
+                device_id,
+                "offline"
+            )
+
+            if device_id in self.pending_offline:
+                del self.pending_offline[device_id]
+
+            self.add_event_to_log(
+                device_name,
+                ip,
+                "Устройство недоступно"
+            )
+
+            self.notifications.device_offline(
+                device_id,
+                device_name,
+                ip
+            )
+
+            self.load_devices()
+
+    def update_counters(self):
+        online = 0
+        offline = 0
+
+        for row in self.db.get_devices():
+            device_type = row[4]
+            status = row[5]
+
+            if device_type == "group":
+                continue
+
+            if status == "online":
+                online += 1
+
+            elif status == "offline":
+                offline += 1
+
+        self.lbl_online.setText(f"🟢 В сети: {online}")
+        self.lbl_offline.setText(f"🔴 Не в сети: {offline}")
+
+    def select_database(self):
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Выбрать базу данных",
+            "",
+            "SQLite Database (*.db);;All Files (*)"
+        )
+
+        if not file_path:
+            return
+
+        set_database_path(file_path)
+
+        self.lbl_database_path.setText(
+            f"Текущая база данных:\n{file_path}"
+        )
+
+        QMessageBox.information(
+            self,
+            "База данных",
+            "Путь к базе сохранён. Перезапустите программу."
+        )
+
+    def save_database_file(self):
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Сохранить базу данных как",
+            "network_monitor.db",
+            "SQLite Database (*.db);;All Files (*)"
+        )
+
+        if not file_path:
+            return
+
+        try:
+            export_database(file_path)
+
+            QMessageBox.information(
+                self,
+                "Сохранение базы",
+                "База данных успешно сохранена."
+            )
+
+        except Exception as error:
+            QMessageBox.critical(
+                self,
+                "Ошибка",
+                f"Не удалось сохранить базу:\n{error}"
+            )
+
+    def add_group(self):
+        name, ok = QInputDialog.getText(
+            self,
+            "Группа",
+            "Название группы:"
+        )
+
+        if not ok or not name:
+            return
+
+        parent_id = None
+        current = self.tree.currentItem()
+
+        if current:
+            parent_id = current.data(0, Qt.ItemDataRole.UserRole)
+
+        self.db.add_device(
+            name=name,
+            ip="",
+            device_type="group",
+            parent_id=parent_id
+        )
+
+        self.load_devices()
+
+    def add_device(self):
+        name, ok = QInputDialog.getText(
+            self,
+            "Устройство",
+            "Название устройства:"
+        )
+
+        if not ok or not name:
+            return
+
+        ip, ok = QInputDialog.getText(
+            self,
+            "IP адрес",
+            "Введите IP:"
+        )
+
+        if not ok or not ip:
+            return
+
+        parent_id = None
+        current = self.tree.currentItem()
+
+        if current:
+            parent_id = current.data(0, Qt.ItemDataRole.UserRole)
+
+        self.db.add_device(
+            name=name,
+            ip=ip,
+            device_type="device",
+            parent_id=parent_id
+        )
+
+        self.load_devices()
+
+    def edit_properties(self):
+        item = self.tree.currentItem()
+
+        if not item:
+            return
+
+        device_id = item.data(
+            0,
+            Qt.ItemDataRole.UserRole
+        )
+
+        device = self.db.get_device_by_id(device_id)
+
+        if not device:
+            return
+
+        name = device[2]
+        ip = device[3]
+        device_type = device[4]
+        status = device[5]
+        last_seen = device[6]
+
+        dialog = DevicePropertiesDialog(
+            name,
+            ip,
+            device_type,
+            status,
+            last_seen,
+            self
+        )
+
+        self.properties_window_open = True
+
+        result = dialog.exec()
+
+        self.properties_window_open = False
+
+        if result != QDialog.DialogCode.Accepted:
+            self.load_devices()
+            return
+
+        new_name, new_ip = dialog.get_data()
+
+        if not new_name:
+            QMessageBox.warning(
+                self,
+                "Ошибка",
+                "Название не может быть пустым."
+            )
+
+            self.load_devices()
+            return
+
+        if device_type == "group":
+            new_ip = ""
+
+        self.db.update_device(
+            device_id,
+            new_name,
+            new_ip
+        )
+
+        self.load_devices()
+
+    def open_web_interface(self, protocol):
+        item = self.tree.currentItem()
+
+        if not item:
+            return
+
+        ip = item.text(1).strip()
+
+        if not ip:
+            QMessageBox.warning(
+                self,
+                "Ошибка",
+                "У выбранного элемента нет IP адреса."
+            )
+            return
+
+        url = f"{protocol}://{ip}"
+
+        webbrowser.open(url)
+
+    def ping_in_cmd(self):
+        item = self.tree.currentItem()
+
+        if not item:
+            return
+
+        ip = item.text(1).strip()
+
+        if not ip:
+            QMessageBox.warning(
+                self,
+                "Ошибка",
+                "У выбранного элемента нет IP адреса."
+            )
+            return
+
+        subprocess.Popen(
+            [
+                "cmd",
+                "/k",
+                "ping",
+                "-t",
+                ip
+            ],
+            creationflags=subprocess.CREATE_NEW_CONSOLE
+        )
+
+    def rename_item(self):
+        item = self.tree.currentItem()
+
+        if not item:
+            return
+
+        device_id = item.data(0, Qt.ItemDataRole.UserRole)
+
+        new_name, ok = QInputDialog.getText(
+            self,
+            "Переименование",
+            "Новое название:"
+        )
+
+        if not ok or not new_name:
+            return
+
+        self.db.update_device_name(
+            device_id,
+            new_name
+        )
+
+        self.load_devices()
+
+    def delete_item(self):
+        item = self.tree.currentItem()
+
+        if not item:
+            return
+
+        device_id = item.data(0, Qt.ItemDataRole.UserRole)
+
+        result = QMessageBox.question(
+            self,
+            "Удаление",
+            "Удалить выбранную ветку?"
+        )
+
+        if result == QMessageBox.StandardButton.Yes:
+            self.db.delete_branch(device_id)
+
+            if device_id in self.pending_offline:
+                del self.pending_offline[device_id]
+
+            self.load_devices()
+
+    def copy_name(self):
+        item = self.tree.currentItem()
+
+        if item:
+            QApplication.clipboard().setText(
+                item.text(0)
+            )
+
+    def copy_ip(self):
+        item = self.tree.currentItem()
+
+        if item:
+            QApplication.clipboard().setText(
+                item.text(1)
+            )
+
+    def show_context_menu(self, position):
+        menu = QMenu(self)
+
+        add_group_action = menu.addAction("Добавить группу")
+        add_device_action = menu.addAction("Добавить устройство")
+
+        menu.addSeparator()
+
+        properties_action = menu.addAction("Свойства")
+
+        web_menu = menu.addMenu("Web")
+        web_http_action = web_menu.addAction("HTTP")
+        web_https_action = web_menu.addAction("HTTPS")
+
+        ping_cmd_action = menu.addAction("Проверить CMD")
+        delete_action = menu.addAction("Удалить")
+
+        menu.addSeparator()
+
+        action = menu.exec(
+            self.tree.viewport().mapToGlobal(position)
+        )
+
+        if action == add_group_action:
+            self.add_group()
+
+        elif action == add_device_action:
+            self.add_device()
+
+        elif action == properties_action:
+            self.edit_properties()
+
+        elif action == web_http_action:
+            self.open_web_interface("http")
+
+        elif action == web_https_action:
+            self.open_web_interface("https")
+
+        elif action == ping_cmd_action:
+            self.ping_in_cmd()
+
+        elif action == delete_action:
+            self.delete_item()
+
+    def load_devices(self):
+        expanded_items = self.get_expanded_items()
+
+        if not expanded_items:
+            expanded_items = self.get_saved_expanded_items()
+
+        self.tree.clear()
+
+        devices = self.db.get_devices()
+        items = {}
+
+        offline_by_parent = {}
+
+        parent_map = {}
+
+        for row in devices:
+            device_id = row[0]
+            parent_id = row[1]
+
+            parent_map[device_id] = parent_id
+
+        def mark_parent_offline(parent_id):
+            while parent_id:
+                offline_by_parent[parent_id] = True
+                parent_id = parent_map.get(parent_id)
+
+        for row in devices:
+            parent_id = row[1]
+            device_type = row[4]
+            status = row[5]
+
+            if device_type != "group" and status == "offline":
+                mark_parent_offline(parent_id)
+
+        for row in devices:
+            device_id = row[0]
+            parent_id = row[1]
+            name = row[2]
+            ip = row[3]
+            device_type = row[4]
+            status = row[5]
+
+            if device_type == "group":
+                if offline_by_parent.get(device_id):
+                    display_name = f"⚠️  📁 {name}"
+                else:
+                    display_name = f"📁  {name}"
+
+                item = QTreeWidgetItem([
+                    display_name,
+                    "",
+                    ""
+                ])
+
+
+            else:
+
+                if status == "online":
+
+                    display_status = "● В сети"
+
+                elif status == "offline":
+
+                    display_status = "● Не в сети"
+
+                else:
+
+                    display_status = "● Нет данных"
+
+                if status == "offline":
+
+                    display_name = f"⚠️  {name}"
+
+
+                elif offline_by_parent.get(device_id):
+
+                    display_name = f"⚠️  {name}"
+
+
+                else:
+
+                    display_name = f"  {name}"
+
+                item = QTreeWidgetItem([
+
+                    display_name,
+
+                    ip if ip else "",
+
+                    display_status
+
+                ])
+
+            if device_type == "group":
+                font = item.font(0)
+                font.setBold(True)
+
+                item.setFont(0, font)
+
+                if offline_by_parent.get(device_id):
+                    item.setForeground(0, QColor("#DC2626"))
+                    item.setBackground(0, QColor("#FEF2F2"))
+                    item.setBackground(1, QColor("#FEF2F2"))
+                    item.setBackground(2, QColor("#FEF2F2"))
+                else:
+                    item.setForeground(0, QColor("#111827"))
+                    item.setBackground(0, QColor("#EEF2FF"))
+                    item.setBackground(1, QColor("#EEF2FF"))
+                    item.setBackground(2, QColor("#EEF2FF"))
+
+            elif status == "online":
+                item.setForeground(2, QColor("#16A34A"))
+
+            elif status == "offline":
+                item.setForeground(2, QColor("#DC2626"))
+
+            else:
+                item.setForeground(2, QColor("#6B7280"))
+
+            item.setData(
+                0,
+                Qt.ItemDataRole.UserRole,
+                device_id
+            )
+
+            items[device_id] = (
+                item,
+                parent_id
+            )
+
+        for device_id, data in items.items():
+            item = data[0]
+            parent_id = data[1]
+
+            if parent_id and parent_id in items:
+                parent_item = items[parent_id][0]
+                parent_item.addChild(item)
+
+            else:
+                self.tree.addTopLevelItem(item)
+
+        for device_id, data in items.items():
+            item = data[0]
+
+            if device_id in expanded_items:
+                item.setExpanded(True)
+
+        self.update_counters()
+
+        if hasattr(self, "ping_worker"):
+            self.refresh_ping_worker()
+
+    def closeEvent(self, event):
+        self.save_expanded_items()
+        self.save_window_settings()
+
+        if self.force_exit:
+            if hasattr(self, "ping_worker"):
+                self.ping_worker.stop()
+                self.ping_worker.wait()
+
+            if hasattr(self, "notifications"):
+                self.notifications.tray_icon.hide()
+
+            event.accept()
+
+        else:
+            event.ignore()
+            self.hide()
+
+            if hasattr(self, "notifications"):
+                self.notifications.tray_icon.show()
+                self.notifications.tray_icon.showMessage(
+                    "Network Monitor",
+                    "Программа свернута в трей",
+                    QSystemTrayIcon.MessageIcon.Information,
+                    2000
+                )
