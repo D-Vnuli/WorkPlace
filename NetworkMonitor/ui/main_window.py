@@ -37,11 +37,6 @@ from PyQt6.QtWidgets import (
     QLineEdit,
     QDialogButtonBox
 )
-from autostart_manager import (
-    enable_autostart,
-    disable_autostart,
-    is_autostart_enabled
-)
 from database import Database
 from ping_worker import PingWorker
 from notifications import NotificationManager
@@ -408,13 +403,6 @@ class MainWindow(QMainWindow):
         self.btn_select_db.setFixedWidth(180)
         self.btn_save_db.setFixedWidth(180)
 
-        self.chk_autostart = QCheckBox(
-            "Запускать Network Monitor при старте Windows"
-        )
-
-        self.chk_autostart.setChecked(
-            is_autostart_enabled()
-        )
         self.cmb_theme = QComboBox()
 
         self.cmb_theme.addItems([
@@ -445,10 +433,6 @@ class MainWindow(QMainWindow):
 
         database_layout.addSpacing(20)
 
-        database_layout.addWidget(self.chk_autostart)
-
-        database_layout.addSpacing(20)
-
         database_layout.addWidget(
             QLabel("Тема оформления")
         )
@@ -473,9 +457,6 @@ class MainWindow(QMainWindow):
 
         self.btn_save_db.clicked.connect(
             self.save_database_file
-        )
-        self.chk_autostart.stateChanged.connect(
-            self.toggle_autostart
         )
         self.btn_add_group.clicked.connect(self.add_group)
         self.btn_add_device.clicked.connect(self.add_device)
@@ -849,48 +830,6 @@ class MainWindow(QMainWindow):
 
         self.lbl_online.setText(f"🟢 В сети: {online}")
         self.lbl_offline.setText(f"🔴 Не в сети: {offline}")
-
-    def toggle_autostart(self):
-        try:
-            if self.chk_autostart.isChecked():
-                enable_autostart()
-
-                QMessageBox.information(
-                    self,
-                    "Автозагрузка",
-                    "Автозагрузка включена."
-                )
-
-            else:
-                disable_autostart()
-
-                QMessageBox.information(
-                    self,
-                    "Автозагрузка",
-                    "Автозагрузка отключена."
-                )
-
-        except Exception as error:
-            QMessageBox.critical(
-                self,
-                "Ошибка",
-                f"Не удалось изменить автозагрузку:\n{error}"
-            )
-
-            self.chk_autostart.blockSignals(True)
-            self.chk_autostart.setChecked(
-                is_autostart_enabled()
-            )
-            self.chk_autostart.blockSignals(False)
-
-            self.cmb_theme = QComboBox()
-
-            self.cmb_theme.addItems([
-                "Светлая",
-                "Тёмная"
-            ])
-
-            self.cmb_theme.setFixedWidth(180)
 
     def show_about_program(self):
         dialog = QDialog(self)
