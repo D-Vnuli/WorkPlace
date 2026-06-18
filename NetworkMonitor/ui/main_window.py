@@ -1,16 +1,19 @@
 import os
 import sys
 import subprocess
+from ui.styles import LIGHT_STYLE, DARK_STYLE
 import webbrowser
 from PyQt6.QtWidgets import QHeaderView
 from datetime import datetime
 from PyQt6.QtGui import QIcon
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QColor
+from PyQt6.QtWidgets import QComboBox
 from PyQt6.QtWidgets import (
     QApplication,
     QMainWindow,
     QWidget,
+    QCheckBox,
     QVBoxLayout,
     QHBoxLayout,
     QPushButton,
@@ -31,7 +34,11 @@ from PyQt6.QtWidgets import (
     QLineEdit,
     QDialogButtonBox
 )
-
+from autostart_manager import (
+    enable_autostart,
+    disable_autostart,
+    is_autostart_enabled
+)
 from database import Database
 from ping_worker import PingWorker
 from notifications import NotificationManager
@@ -172,6 +179,18 @@ class DevicePropertiesDialog(QDialog):
 
 class MainWindow(QMainWindow):
 
+    def change_theme(self, theme_name):
+        print("Тема изменена:", theme_name)
+
+        if theme_name == "Тёмная":
+            QApplication.instance().setStyleSheet(DARK_STYLE)
+            self.db.set_setting("theme", "dark")
+        else:
+            QApplication.instance().setStyleSheet(LIGHT_STYLE)
+            self.db.set_setting("theme", "light")
+
+        self.load_devices()
+
     def __init__(self):
         super().__init__()
 
@@ -238,49 +257,49 @@ class MainWindow(QMainWindow):
         self.tree.setAnimated(True)
         self.tree.setIndentation(22)
 
-        self.tree.setStyleSheet("""
-        QTreeWidget {
-            background-color: white;
-            alternate-background-color: #F9FAFB;
-            color: #111827;
-            border: 1px solid #D1D5DB;
-            border-radius: 8px;
-            padding: 4px;
-        }
-
-        QTreeWidget::item {
-            height: 34px;
-             padding: 4px;
-            border-radius: 4px;
-        }
-
-        QTreeWidget::item:selected {
-            background-color: #DBEAFE;
-        }
-
-        QTreeWidget::item:selected:active {
-            background-color: #DBEAFE;
-            color: #111827;
-        }
-
-        QTreeWidget::item:selected:!active {
-            background-color: #DBEAFE;
-            color: #111827;
-        }
-
-        QTreeWidget::item:hover {
-            background-color: #EFF6FF;
-        }
-
-        QHeaderView::section {
-            background-color: #F3F4F6;
-            color: #374151;
-            border: none;
-            border-bottom: 1px solid #D1D5DB;
-            padding: 8px;
-            font-weight: bold;
-        }
-        """)
+        # self.tree.setStyleSheet("""
+        # QTreeWidget {
+        #     background-color: white;
+        #     alternate-background-color: #F9FAFB;
+        #     color: #111827;
+        #     border: 1px solid #D1D5DB;
+        #     border-radius: 8px;
+        #     padding: 4px;
+        # }
+        #
+        # QTreeWidget::item {
+        #     height: 34px;
+        #      padding: 4px;
+        #     border-radius: 4px;
+        # }
+        #
+        # QTreeWidget::item:selected {
+        #     background-color: #DBEAFE;
+        # }
+        #
+        # QTreeWidget::item:selected:active {
+        #     background-color: #DBEAFE;
+        #     color: #111827;
+        # }
+        #
+        # QTreeWidget::item:selected:!active {
+        #     background-color: #DBEAFE;
+        #     color: #111827;
+        # }
+        #
+        # QTreeWidget::item:hover {
+        #     background-color: #EFF6FF;
+        # }
+        #
+        # QHeaderView::section {
+        #     background-color: #F3F4F6;
+        #     color: #374151;
+        #     border: none;
+        #     border-bottom: 1px solid #D1D5DB;
+        #     padding: 8px;
+        #     font-weight: bold;
+        # }
+        # """)
 
         self.tree.setHeaderLabels([
             "Устройство",
@@ -333,18 +352,18 @@ class MainWindow(QMainWindow):
         log_layout.addWidget(self.btn_clear_log)
 
         self.log_table = QTableWidget()
-        self.log_table.setStyleSheet("""
-        QHeaderView::section {
-            background-color: #E8E8E8;
-            border: 1px solid #B0B0B0;
-            padding: 4px;
-            font-weight: bold;
-        }
-
-        QTableWidget {
-            gridline-color: #D0D0D0;
-        }
-        """)
+        # self.log_table.setStyleSheet("""
+        # QHeaderView::section {
+        #     background-color: #E8E8E8;
+        #     border: 1px solid #B0B0B0;
+        #     padding: 4px;
+        #     font-weight: bold;
+        # }
+        #
+        # QTableWidget {
+        #     gridline-color: #D0D0D0;
+        # }
+        # """)
         self.log_table.setColumnCount(4)
 
         self.log_table.setAlternatingRowColors(True)
@@ -406,12 +425,61 @@ class MainWindow(QMainWindow):
         self.btn_select_db = QPushButton("Выбрать базу")
         self.btn_save_db = QPushButton("Сохранить базу")
 
+        self.btn_select_db.setFixedWidth(180)
+        self.btn_save_db.setFixedWidth(180)
+
+        self.chk_autostart = QCheckBox(
+            "Запускать Network Monitor при старте Windows"
+        )
+
+        self.chk_autostart.setChecked(
+            is_autostart_enabled()
+        )
+        self.cmb_theme = QComboBox()
+
+        self.cmb_theme.addItems([
+            "Светлая",
+            "Тёмная"
+        ])
+        saved_theme = self.db.get_setting(
+            "theme",
+            "light"
+        )
+
+        if saved_theme == "dark":
+            self.cmb_theme.setCurrentText("Тёмная")
+        else:
+            self.cmb_theme.setCurrentText("Светлая")
+        self.cmb_theme.currentTextChanged.connect(
+            self.change_theme
+        )
+        self.cmb_theme.setFixedWidth(180)
+
+        buttons_layout = QHBoxLayout()
+        buttons_layout.addWidget(self.btn_select_db)
+        buttons_layout.addWidget(self.btn_save_db)
+        buttons_layout.addStretch()
+
         database_layout.addWidget(self.lbl_database_path)
-        database_layout.addWidget(self.btn_select_db)
-        database_layout.addWidget(self.btn_save_db)
+        database_layout.addLayout(buttons_layout)
+
+        database_layout.addSpacing(20)
+
+        database_layout.addWidget(self.chk_autostart)
+
+        database_layout.addSpacing(20)
+
+        database_layout.addWidget(
+            QLabel("Тема оформления")
+        )
+
+        database_layout.addWidget(
+            self.cmb_theme
+        )
+
         database_layout.addStretch()
 
-        self.tabs.addTab(database_tab, "База данных")
+        self.tabs.addTab(database_tab, "Настройки")
 
         self.btn_select_db.clicked.connect(
             self.select_database
@@ -420,7 +488,9 @@ class MainWindow(QMainWindow):
         self.btn_save_db.clicked.connect(
             self.save_database_file
         )
-
+        self.chk_autostart.stateChanged.connect(
+            self.toggle_autostart
+        )
         self.btn_add_group.clicked.connect(self.add_group)
         self.btn_add_device.clicked.connect(self.add_device)
 
@@ -793,6 +863,48 @@ class MainWindow(QMainWindow):
 
         self.lbl_online.setText(f"🟢 В сети: {online}")
         self.lbl_offline.setText(f"🔴 Не в сети: {offline}")
+
+    def toggle_autostart(self):
+        try:
+            if self.chk_autostart.isChecked():
+                enable_autostart()
+
+                QMessageBox.information(
+                    self,
+                    "Автозагрузка",
+                    "Автозагрузка включена."
+                )
+
+            else:
+                disable_autostart()
+
+                QMessageBox.information(
+                    self,
+                    "Автозагрузка",
+                    "Автозагрузка отключена."
+                )
+
+        except Exception as error:
+            QMessageBox.critical(
+                self,
+                "Ошибка",
+                f"Не удалось изменить автозагрузку:\n{error}"
+            )
+
+            self.chk_autostart.blockSignals(True)
+            self.chk_autostart.setChecked(
+                is_autostart_enabled()
+            )
+            self.chk_autostart.blockSignals(False)
+
+            self.cmb_theme = QComboBox()
+
+            self.cmb_theme.addItems([
+                "Светлая",
+                "Тёмная"
+            ])
+
+            self.cmb_theme.setFixedWidth(180)
 
     def select_database(self):
         file_path, _ = QFileDialog.getOpenFileName(
@@ -1219,16 +1331,37 @@ class MainWindow(QMainWindow):
 
                 item.setFont(0, font)
 
-                if offline_by_parent.get(device_id):
-                    item.setForeground(0, QColor("#DC2626"))
-                    item.setBackground(0, QColor("#FEF2F2"))
-                    item.setBackground(1, QColor("#FEF2F2"))
-                    item.setBackground(2, QColor("#FEF2F2"))
+                current_theme = self.db.get_setting(
+                    "theme",
+                    "light"
+                )
+
+                if current_theme == "dark":
+
+                    if offline_by_parent.get(device_id):
+                        item.setForeground(0, QColor("#FCA5A5"))
+
+                        item.setBackground(0, QColor("#3A2525"))
+                        item.setBackground(1, QColor("#3A2525"))
+                        item.setBackground(2, QColor("#3A2525"))
+
+
+                    else:
+
+                        item.setForeground(0, QColor("#F3F4F6"))
+
                 else:
-                    item.setForeground(0, QColor("#111827"))
-                    item.setBackground(0, QColor("#EEF2FF"))
-                    item.setBackground(1, QColor("#EEF2FF"))
-                    item.setBackground(2, QColor("#EEF2FF"))
+
+                    if offline_by_parent.get(device_id):
+                        item.setForeground(0, QColor("#DC2626"))
+
+                        item.setBackground(0, QColor("#FEF2F2"))
+                        item.setBackground(1, QColor("#FEF2F2"))
+                        item.setBackground(2, QColor("#FEF2F2"))
+
+                    else:
+
+                        item.setForeground(0, QColor("#111827"))
 
             elif status == "online":
                 item.setForeground(2, QColor("#16A34A"))

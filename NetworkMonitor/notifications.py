@@ -1,3 +1,5 @@
+import os
+import sys
 from PyQt6.QtGui import QIcon
 from PyQt6.QtCore import QTimer, Qt
 from PyQt6.QtWidgets import (
@@ -10,10 +12,16 @@ from PyQt6.QtWidgets import (
     QTableWidget,
     QTableWidgetItem,
     QSystemTrayIcon,
-    QStyle,
     QHeaderView
 )
 
+def resource_path(relative_path):
+    try:
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+
+    return os.path.join(base_path, relative_path)
 
 class OfflineDevicesDialog(QDialog):
 
@@ -22,6 +30,48 @@ class OfflineDevicesDialog(QDialog):
 
         self.setWindowTitle(title)
         self.resize(600, 350)
+        self.setStyleSheet("""
+        QDialog {
+            background-color: #FFFFFF;
+            color: #111827;
+        }
+
+        QLabel {
+            color: #111827;
+        }
+
+        QTableWidget {
+            background-color: #FFFFFF;
+            color: #111827;
+            gridline-color: #D1D5DB;
+            border: 1px solid #D1D5DB;
+        }
+
+        QTableWidget::item {
+            color: #111827;
+        }
+
+        QHeaderView::section {
+            background-color: #F3F4F6;
+            color: #111827;
+            border: 1px solid #D1D5DB;
+            padding: 6px;
+            font-weight: bold;
+        }
+
+        QPushButton {
+            background-color: #2563EB;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            padding: 7px 12px;
+        }
+        """)
+
+        self.setWindowFlag(
+            Qt.WindowType.WindowStaysOnTopHint,
+            True
+        )
 
         layout = QVBoxLayout(self)
 
@@ -77,19 +127,6 @@ class OfflineDevicesDialog(QDialog):
 
         self.table.setAlternatingRowColors(True)
         self.table.setShowGrid(True)
-
-        self.table.setStyleSheet("""
-        QHeaderView::section {
-            background-color: #F0F0F0;
-            border: 1px solid #C8C8C8;
-            padding: 4px;
-            font-weight: bold;
-        }
-
-        QTableWidget {
-            gridline-color: #D0D0D0;
-        }
-        """)
 
         table_header = self.table.horizontalHeader()
 
@@ -153,23 +190,15 @@ class OfflineDevicesDialog(QDialog):
 
 class NotificationManager:
 
-    def device_online(self, device_id, name, ip):
-        self.tray_icon.showMessage(
-            "Связь восстановлена",
-            f"{name}\nIP: {ip}\nУстройство снова в сети",
-            QSystemTrayIcon.MessageIcon.Information,
-            5000
-        )
-
     def __init__(self, parent):
         self.parent = parent
 
         self.tray_icon = QSystemTrayIcon(parent)
 
         icon = QIcon(
-            "icons/icon-monitor.png"
+            resource_path("icons/icon-monitor.png")
         )
-        
+
         self.tray_icon.setIcon(icon)
         self.tray_icon.setToolTip("Network Monitor")
         self.tray_icon.show()
@@ -282,9 +311,12 @@ class NotificationManager:
         )
 
         dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
 
     def device_online(
             self,
+            device_id,
             name,
             ip):
 
