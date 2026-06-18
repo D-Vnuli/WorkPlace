@@ -234,7 +234,6 @@ class MainWindow(QMainWindow):
 
         self.setWindowTitle("Network Monitor")
         app_icon = QIcon(resource_path("icons/icon-monitor.png"))
-
         self.setWindowIcon(app_icon)
 
         self.setup_ui()
