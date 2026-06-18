@@ -129,8 +129,6 @@ dist/
 
 ## Автор
 
-Разработчик: Денис
-
 Telegram: @DenisVnuli
 
 Email: [d.stronsky.ai@gmail.com](mailto:d.stronsky.ai@gmail.com)
