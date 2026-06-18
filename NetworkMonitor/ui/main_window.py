@@ -10,6 +10,7 @@ from datetime import datetime
 from PyQt6.QtGui import QIcon
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QColor
+
 from PyQt6.QtWidgets import QComboBox
 from PyQt6.QtWidgets import (
     QApplication,
@@ -459,6 +460,12 @@ class MainWindow(QMainWindow):
 
         database_layout.addStretch()
 
+        self.btn_about = QPushButton("О программе")
+        self.btn_about.setFixedWidth(180)
+        self.btn_about.clicked.connect(self.show_about_program)
+
+        database_layout.addWidget(self.btn_about)
+
         self.tabs.addTab(database_tab, "Настройки")
 
         self.btn_select_db.clicked.connect(
@@ -885,6 +892,100 @@ class MainWindow(QMainWindow):
             ])
 
             self.cmb_theme.setFixedWidth(180)
+
+    def show_about_program(self):
+        dialog = QDialog(self)
+
+        current_theme = self.db.get_setting(
+            "theme",
+            "light"
+        )
+
+        if current_theme == "dark":
+            bg_color = "#252526"
+            text_color = "#F3F4F6"
+        else:
+            bg_color = "#FFFFFF"
+            text_color = "#111827"
+
+        dialog.setWindowTitle("О программе")
+        dialog.setWindowIcon(
+            QIcon(resource_path("icons/icon-monitor.png"))
+        )
+        dialog.setFixedSize(450, 280)
+
+        dialog.setStyleSheet(f"""
+            QDialog {{
+                background-color: {bg_color};
+            }}
+
+            QLabel {{
+                color: {text_color};
+                background: transparent;
+            }}
+
+            QPushButton {{
+                background-color: #2563EB;
+                color: white;
+                border: none;
+                border-radius: 6px;
+                padding: 7px 12px;
+            }}
+
+            QPushButton:hover {{
+                background-color: #1D4ED8;
+            }}
+        """)
+
+        layout = QVBoxLayout(dialog)
+
+        title = QLabel("Network Monitor")
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title.setStyleSheet(f"""
+            font-size: 18pt;
+            font-weight: bold;
+            color: {text_color};
+            background: transparent;
+        """)
+
+        description = QLabel(
+            "Программа для мониторинга сетевых устройств"
+        )
+        description.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        contacts = QLabel(
+            f"""
+            <a href="https://t.me/DenisVnuli"
+               style="color:{text_color}; text-decoration:none;">
+               Telegram: @DenisVnuli
+            </a>
+            <br><br>
+            <span style="color:{text_color};">
+                d.stronsky.ai@gmail.com
+            </span>
+            """
+        )
+        contacts.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        contacts.setOpenExternalLinks(True)
+
+        version = QLabel("Версия 1.0")
+        version.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        btn_ok = QPushButton("OK")
+        btn_ok.clicked.connect(dialog.accept)
+
+        layout.addStretch()
+        layout.addWidget(title)
+        layout.addSpacing(10)
+        layout.addWidget(description)
+        layout.addSpacing(20)
+        layout.addWidget(contacts)
+        layout.addSpacing(20)
+        layout.addWidget(version)
+        layout.addStretch()
+        layout.addWidget(btn_ok)
+
+        dialog.exec()
 
     def select_database(self):
         file_path, _ = QFileDialog.getOpenFileName(
