@@ -1,5 +1,7 @@
 import os
 import sys
+from PyQt6.QtCore import QTimer
+from PyQt6.QtWidgets import QApplication
 import subprocess
 from ui.styles import LIGHT_STYLE, DARK_STYLE
 import webbrowser
@@ -169,6 +171,8 @@ class DevicePropertiesDialog(QDialog):
 
         layout.addWidget(buttons)
 
+
+
     def get_data(self):
 
         return (
@@ -178,6 +182,33 @@ class DevicePropertiesDialog(QDialog):
 
 
 class MainWindow(QMainWindow):
+
+    def get_app_dir(self):
+        if getattr(sys, "frozen", False):
+            return os.path.dirname(sys.executable)
+        return os.path.dirname(os.path.abspath(sys.argv[0]))
+
+    def check_update_flag(self):
+        flag_path = os.path.join(self.get_app_dir(), "update.flag")
+
+        if os.path.exists(flag_path):
+            self.exit_for_update()
+
+    def exit_for_update(self):
+        # Останавливаем таймер проверки обновления
+        if hasattr(self, "update_timer"):
+            self.update_timer.stop()
+
+        # Останавливаем ping worker
+        if hasattr(self, "ping_worker") and self.ping_worker:
+            self.ping_worker.stop()
+            self.ping_worker.wait()
+
+        # Убираем иконку из трея
+        if hasattr(self, "tray_icon") and self.tray_icon:
+            self.tray_icon.hide()
+
+        QApplication.quit()
 
     def change_theme(self, theme_name):
         print("Тема изменена:", theme_name)
@@ -221,6 +252,10 @@ class MainWindow(QMainWindow):
         self.refresh_ping_worker()
         self.ping_worker.start()
 
+        self.update_timer = QTimer(self)
+        self.update_timer.timeout.connect(self.check_update_flag)
+        self.update_timer.start(60000)
+
     def setup_ui(self):
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -256,50 +291,6 @@ class MainWindow(QMainWindow):
         self.tree.setUniformRowHeights(True)
         self.tree.setAnimated(True)
         self.tree.setIndentation(22)
-
-        # self.tree.setStyleSheet("""
-        # QTreeWidget {
-        #     background-color: white;
-        #     alternate-background-color: #F9FAFB;
-        #     color: #111827;
-        #     border: 1px solid #D1D5DB;
-        #     border-radius: 8px;
-        #     padding: 4px;
-        # }
-        #
-        # QTreeWidget::item {
-        #     height: 34px;
-        #      padding: 4px;
-        #     border-radius: 4px;
-        # }
-        #
-        # QTreeWidget::item:selected {
-        #     background-color: #DBEAFE;
-        # }
-        #
-        # QTreeWidget::item:selected:active {
-        #     background-color: #DBEAFE;
-        #     color: #111827;
-        # }
-        #
-        # QTreeWidget::item:selected:!active {
-        #     background-color: #DBEAFE;
-        #     color: #111827;
-        # }
-        #
-        # QTreeWidget::item:hover {
-        #     background-color: #EFF6FF;
-        # }
-        #
-        # QHeaderView::section {
-        #     background-color: #F3F4F6;
-        #     color: #374151;
-        #     border: none;
-        #     border-bottom: 1px solid #D1D5DB;
-        #     padding: 8px;
-        #     font-weight: bold;
-        # }
-        # """)
 
         self.tree.setHeaderLabels([
             "Устройство",
@@ -352,18 +343,7 @@ class MainWindow(QMainWindow):
         log_layout.addWidget(self.btn_clear_log)
 
         self.log_table = QTableWidget()
-        # self.log_table.setStyleSheet("""
-        # QHeaderView::section {
-        #     background-color: #E8E8E8;
-        #     border: 1px solid #B0B0B0;
-        #     padding: 4px;
-        #     font-weight: bold;
-        # }
-        #
-        # QTableWidget {
-        #     gridline-color: #D0D0D0;
-        # }
-        # """)
+
         self.log_table.setColumnCount(4)
 
         self.log_table.setAlternatingRowColors(True)
