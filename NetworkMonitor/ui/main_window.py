@@ -179,6 +179,8 @@ class DevicePropertiesDialog(QDialog):
 
 class MainWindow(QMainWindow):
 
+
+
     def get_app_dir(self):
         if getattr(sys, "frozen", False):
             return os.path.dirname(sys.executable)
@@ -200,9 +202,8 @@ class MainWindow(QMainWindow):
             self.ping_worker.stop()
             self.ping_worker.wait()
 
-        # Убираем иконку из трея
-        if hasattr(self, "tray_icon") and self.tray_icon:
-            self.tray_icon.hide()
+        if hasattr(self, "notifications"):
+            self.notifications.tray_icon.hide()
 
         QApplication.quit()
 
@@ -226,6 +227,20 @@ class MainWindow(QMainWindow):
         self.notifications = NotificationManager(self)
         self.pending_offline = {}
         self.force_exit = False
+        self.devices_refresh_pending = False
+        self.events_refresh_pending = False
+
+        self.devices_refresh_timer = QTimer(self)
+        self.devices_refresh_timer.setSingleShot(True)
+        self.devices_refresh_timer.timeout.connect(self.load_devices)
+
+        self.events_refresh_timer = QTimer(self)
+        self.events_refresh_timer.setSingleShot(True)
+        self.events_refresh_timer.timeout.connect(self.load_events)
+
+        self.shared_db_refresh_timer = QTimer(self)
+        self.shared_db_refresh_timer.timeout.connect(self.refresh_from_shared_db)
+        self.shared_db_refresh_timer.start(30 * 1000)  # обновление общей базы раз в 30 секунд
 
         self.setWindowTitle("Network Monitor")
         app_icon = QIcon(resource_path("icons/icon-monitor.png"))
@@ -696,7 +711,75 @@ class MainWindow(QMainWindow):
             event_text
         )
 
-        self.load_events()
+        self.add_event_row_to_table(
+            timestamp,
+            device_name,
+            ip,
+            event_text
+        )
+
+    def add_event_row_to_table(self, timestamp, device_name, ip, event_text):
+        try:
+            dt = datetime.strptime(
+                timestamp,
+                "%Y-%m-%d %H:%M:%S"
+            )
+
+            timestamp = dt.strftime(
+                "%H:%M %d-%m-%Y"
+            )
+
+        except Exception:
+            pass
+
+        row_index = self.log_table.rowCount()
+        self.log_table.insertRow(row_index)
+
+        time_item = QTableWidgetItem(timestamp)
+        time_item.setTextAlignment(
+            Qt.AlignmentFlag.AlignCenter
+        )
+
+        device_item = QTableWidgetItem(device_name)
+        device_item.setTextAlignment(
+            Qt.AlignmentFlag.AlignCenter
+        )
+
+        ip_item = QTableWidgetItem(
+            ip if ip else ""
+        )
+        ip_item.setTextAlignment(
+            Qt.AlignmentFlag.AlignCenter
+        )
+
+        event_item = QTableWidgetItem(event_text)
+        event_item.setTextAlignment(
+            Qt.AlignmentFlag.AlignCenter
+        )
+
+        self.log_table.setItem(
+            row_index,
+            0,
+            time_item
+        )
+
+        self.log_table.setItem(
+            row_index,
+            1,
+            device_item
+        )
+
+        self.log_table.setItem(
+            row_index,
+            2,
+            ip_item
+        )
+
+        self.log_table.setItem(
+            row_index,
+            3,
+            event_item
+        )
 
     def on_device_moved(self, device_id, parent_id):
         self.db.update_device_parent(
@@ -706,13 +789,35 @@ class MainWindow(QMainWindow):
 
         self.load_devices()
 
-    def refresh_ping_worker(self):
+    def request_devices_refresh(self):
+        if self.devices_refresh_timer.isActive():
+            return
+
+        self.devices_refresh_timer.start(1500)
+
+    def request_events_refresh(self):
+        if self.events_refresh_timer.isActive():
+            return
+
+        self.events_refresh_timer.start(1500)
+
+    def refresh_from_shared_db(self):
+        if self.properties_window_open:
+            return
+
+        self.load_devices()
+        self.load_events()
+
+    def refresh_ping_worker(self, devices=None):
         if not hasattr(self, "ping_worker"):
             return
 
-        devices = []
+        if devices is None:
+            devices = self.db.get_devices()
 
-        for row in self.db.get_devices():
+        ping_devices = []
+
+        for row in devices:
             device_id = row[0]
             ip = row[3]
             device_type = row[4]
@@ -723,9 +828,9 @@ class MainWindow(QMainWindow):
             if not ip:
                 continue
 
-            devices.append((device_id, ip))
+            ping_devices.append((device_id, ip))
 
-        self.ping_worker.update_devices(devices)
+        self.ping_worker.update_devices(ping_devices)
 
     def on_device_status_changed(self, device_id, new_status):
         device = self.db.get_device_by_id(device_id)
@@ -741,8 +846,9 @@ class MainWindow(QMainWindow):
 
         if new_status == "online":
 
-            self.db.update_last_seen(
-                device_id
+            self.db.update_last_seen_if_needed(
+                device_id,
+                seconds=60
             )
 
             if device_id in self.pending_offline:
@@ -768,7 +874,7 @@ class MainWindow(QMainWindow):
                     )
 
                 if not self.properties_window_open:
-                    self.load_devices()
+                    self.request_devices_refresh()
 
             return
 
@@ -809,13 +915,13 @@ class MainWindow(QMainWindow):
                 ip
             )
 
-            self.load_devices()
+            self.request_devices_refresh()
 
-    def update_counters(self):
+    def update_counters(self, devices):
         online = 0
         offline = 0
 
-        for row in self.db.get_devices():
+        for row in devices:
             device_type = row[4]
             status = row[5]
 
@@ -824,7 +930,6 @@ class MainWindow(QMainWindow):
 
             if status == "online":
                 online += 1
-
             elif status == "offline":
                 offline += 1
 
@@ -906,7 +1011,7 @@ class MainWindow(QMainWindow):
         contacts.setAlignment(Qt.AlignmentFlag.AlignCenter)
         contacts.setOpenExternalLinks(True)
 
-        version = QLabel("Версия 1.0")
+        version = QLabel("Версия 2.0")
         version.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         btn_ok = QPushButton("OK")
@@ -1260,6 +1365,10 @@ class MainWindow(QMainWindow):
         self.tree.clear()
 
         devices = self.db.get_devices()
+        current_theme = self.db.get_setting(
+            "theme",
+            "light"
+        )
         items = {}
 
         offline_by_parent = {}
@@ -1350,11 +1459,6 @@ class MainWindow(QMainWindow):
 
                 item.setFont(0, font)
 
-                current_theme = self.db.get_setting(
-                    "theme",
-                    "light"
-                )
-
                 if current_theme == "dark":
 
                     if offline_by_parent.get(device_id):
@@ -1419,10 +1523,10 @@ class MainWindow(QMainWindow):
             if device_id in expanded_items:
                 item.setExpanded(True)
 
-        self.update_counters()
+        self.update_counters(devices)
 
         if hasattr(self, "ping_worker"):
-            self.refresh_ping_worker()
+            self.refresh_ping_worker(devices)
 
     def closeEvent(self, event):
         self.save_expanded_items()

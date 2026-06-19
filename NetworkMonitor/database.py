@@ -13,9 +13,12 @@ class Database:
             timeout=10
         )
 
+        self.conn.execute("PRAGMA foreign_keys = ON")
+        self.conn.execute("PRAGMA busy_timeout = 10000")
+        self.conn.execute("PRAGMA synchronous = NORMAL")
+
         self.create_tables()
         self.migrate_tables()
-
 
     def update_last_seen(self, device_id):
         cursor = self.conn.cursor()
@@ -27,6 +30,25 @@ class Database:
         """, (device_id,))
 
         self.conn.commit()
+
+    def update_last_seen_if_needed(self, device_id, seconds=60):
+        cursor = self.conn.cursor()
+
+        cursor.execute("""
+        UPDATE devices
+        SET last_seen = datetime('now', 'localtime')
+        WHERE id = ?
+          AND (
+              last_seen IS NULL
+              OR datetime(last_seen) <= datetime('now', 'localtime', ?)
+          )
+        """, (
+            device_id,
+            f"-{seconds} seconds"
+        ))
+
+        if cursor.rowcount > 0:
+            self.conn.commit()
 
     def clear_events(self):
         cursor = self.conn.cursor()
@@ -69,6 +91,26 @@ class Database:
             key TEXT PRIMARY KEY,
             value TEXT
         )
+        """)
+
+        cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_devices_parent_id
+        ON devices(parent_id)
+        """)
+
+        cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_devices_status
+        ON devices(status)
+        """)
+
+        cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_devices_type
+        ON devices(type)
+        """)
+
+        cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_events_id
+        ON events(id)
         """)
 
         self.conn.commit()
@@ -267,7 +309,7 @@ class Database:
 
         self.conn.commit()
 
-    def get_events(self):
+    def get_events(self, limit=500):
         cursor = self.conn.cursor()
 
         cursor.execute("""
@@ -278,7 +320,8 @@ class Database:
             event
         FROM events
         ORDER BY id DESC
-        """)
+        LIMIT ?
+        """, (limit,))
 
         return cursor.fetchall()
 
@@ -310,8 +353,18 @@ class Database:
         self.conn.commit()
 
     def acknowledge_notifications(self, device_ids):
-        for device_id in device_ids:
-            self.acknowledge_notification(device_id)
+        if not device_ids:
+            return
+
+        cursor = self.conn.cursor()
+
+        cursor.executemany("""
+        UPDATE devices
+        SET notification_acknowledged = 1
+        WHERE id = ?
+        """, [(device_id,) for device_id in device_ids])
+
+        self.conn.commit()
 
     def reset_notification_acknowledgement(self, device_id):
         cursor = self.conn.cursor()
