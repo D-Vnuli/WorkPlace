@@ -909,10 +909,13 @@ class MainWindow(QMainWindow):
                 "Устройство недоступно"
             )
 
+            device_path = self.db.get_device_path(device_id)
+
             self.notifications.device_offline(
                 device_id,
                 device_name,
-                ip
+                ip,
+                device_path
             )
 
             self.request_devices_refresh()

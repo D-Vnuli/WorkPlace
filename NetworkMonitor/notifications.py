@@ -108,9 +108,10 @@ class OfflineDevicesDialog(QDialog):
         layout.addWidget(description)
 
         self.table = QTableWidget()
-        self.table.setColumnCount(2)
+        self.table.setColumnCount(3)
 
         self.table.setHorizontalHeaderLabels([
+            "Ветка",
             "Устройство",
             "IP адрес"
         ])
@@ -147,8 +148,9 @@ class OfflineDevicesDialog(QDialog):
         self.table.verticalHeader().setVisible(False)
 
         for row_index, device in enumerate(devices):
-            _, name, ip = device
+            _, name, ip, path = device
 
+            path_item = QTableWidgetItem(path if path else "")
             name_item = QTableWidgetItem(name)
             ip_item = QTableWidgetItem(ip if ip else "")
 
@@ -159,16 +161,25 @@ class OfflineDevicesDialog(QDialog):
             ip_item.setTextAlignment(
                 Qt.AlignmentFlag.AlignCenter
             )
+            path_item.setTextAlignment(
+                Qt.AlignmentFlag.AlignCenter
+            )
 
             self.table.setItem(
                 row_index,
                 0,
-                name_item
+                path_item
             )
 
             self.table.setItem(
                 row_index,
                 1,
+                name_item
+            )
+
+            self.table.setItem(
+                row_index,
+                2,
                 ip_item
             )
 
@@ -218,10 +229,16 @@ class NotificationManager:
             self,
             device_id,
             name,
-            ip):
+            ip,
+            device_path=None):
 
         self.pending_offline_devices.append(
-            (device_id, name, ip)
+            (
+                device_id,
+                name,
+                ip,
+                device_path
+            )
         )
 
         if not self.offline_timer.isActive():
@@ -267,7 +284,14 @@ class NotificationManager:
     def build_tray_message(self, devices):
 
         if len(devices) == 1:
-            _, name, ip = devices[0]
+            _, name, ip, path = devices[0]
+
+            if path:
+                return (
+                    f"{path}\n"
+                    f"{ip}\n"
+                    f"Потеряна связь"
+                )
 
             return (
                 f"{name}\n"
@@ -277,10 +301,15 @@ class NotificationManager:
 
         lines = []
 
-        for _, name, ip in devices:
-            lines.append(
-                f"• {name} — {ip}"
-            )
+        for _, name, ip, path in devices:
+            if path:
+                lines.append(
+                    f"• {path} — {ip}"
+                )
+            else:
+                lines.append(
+                    f"• {name} — {ip}"
+                )
 
         return "\n".join(lines)
 

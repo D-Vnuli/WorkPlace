@@ -406,3 +406,43 @@ class Database:
             return row[0]
 
         return default
+
+    def get_device_path(self, device_id):
+        cursor = self.conn.cursor()
+
+        path = []
+
+        cursor.execute("""
+        SELECT parent_id
+        FROM devices
+        WHERE id = ?
+        """, (device_id,))
+
+        row = cursor.fetchone()
+
+        if not row:
+            return ""
+
+        current_id = row[0]
+
+        while current_id:
+            cursor.execute("""
+            SELECT parent_id, name
+            FROM devices
+            WHERE id = ?
+            """, (current_id,))
+
+            row = cursor.fetchone()
+
+            if not row:
+                break
+
+            parent_id, name = row
+
+            path.append(name)
+
+            current_id = parent_id
+
+        path.reverse()
+
+        return " → ".join(path)
