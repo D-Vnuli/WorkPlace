@@ -89,11 +89,66 @@ class DevicePropertiesDialog(QDialog):
             device_type,
             status,
             last_seen,
+            dark_theme=False,
             parent=None):
 
         super().__init__(parent)
 
         self.setWindowTitle("Свойства")
+        if dark_theme:
+            self.setStyleSheet("""
+            QDialog {
+                background-color: #252526;
+                color: #F3F4F6;
+            }
+
+            QLabel {
+                color: #F3F4F6;
+            }
+
+            QLineEdit {
+                background-color: #1E1E1E;
+                color: #F3F4F6;
+                border: 1px solid #3F3F46;
+                border-radius: 6px;
+                padding: 6px;
+            }
+
+            QPushButton {
+                background-color: #2563EB;
+                color: white;
+                border: none;
+                border-radius: 6px;
+                padding: 7px 12px;
+            }
+            """)
+        else:
+            self.setStyleSheet("""
+            QDialog {
+                background-color: #FFFFFF;
+                color: #111827;
+            }
+
+            QLabel {
+                color: #111827;
+            }
+
+            QLineEdit {
+                background-color: #FFFFFF;
+                color: #111827;
+                border: 1px solid #D1D5DB;
+                border-radius: 6px;
+                padding: 6px;
+            }
+
+            QPushButton {
+                background-color: #2563EB;
+                color: white;
+                border: none;
+                border-radius: 6px;
+                padding: 7px 12px;
+            }
+            """)
 
         layout = QFormLayout(self)
 
@@ -1167,13 +1222,19 @@ class MainWindow(QMainWindow):
         status = device[5]
         last_seen = device[6]
 
+        current_theme = self.db.get_setting(
+            "theme",
+            "light"
+        )
+
         dialog = DevicePropertiesDialog(
             name,
             ip,
             device_type,
             status,
             last_seen,
-            self
+            dark_theme=(current_theme == "dark"),
+            parent=self
         )
 
         self.properties_window_open = True
