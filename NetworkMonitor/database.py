@@ -80,6 +80,7 @@ class Database:
         CREATE TABLE IF NOT EXISTS events (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             timestamp TEXT NOT NULL,
+            device_path TEXT,
             device_name TEXT NOT NULL,
             ip TEXT,
             event TEXT NOT NULL
@@ -126,8 +127,18 @@ class Database:
             ALTER TABLE devices
             ADD COLUMN notification_acknowledged INTEGER DEFAULT 0
             """)
+        cursor.execute("PRAGMA table_info(events)")
+        columns = [row[1] for row in cursor.fetchall()]
+
+        if "device_path" not in columns:
+            cursor.execute("""
+            ALTER TABLE events
+            ADD COLUMN device_path TEXT
+            """)
+
 
         self.conn.commit()
+
 
     def add_device(self, name, ip, device_type, parent_id=None):
         cursor = self.conn.cursor()
@@ -316,15 +327,29 @@ class Database:
 
         self.conn.commit()
 
-    def add_event(self, timestamp, device_name, ip, event):
+    def add_event(
+            self,
+            timestamp,
+            device_path,
+            device_name,
+            ip,
+            event):
+
         cursor = self.conn.cursor()
 
         cursor.execute("""
         INSERT INTO events
-        (timestamp, device_name, ip, event)
-        VALUES (?, ?, ?, ?)
+        (
+            timestamp,
+            device_path,
+            device_name,
+            ip,
+            event
+        )
+        VALUES (?, ?, ?, ?, ?)
         """, (
             timestamp,
+            device_path,
             device_name,
             ip,
             event
@@ -338,6 +363,7 @@ class Database:
         cursor.execute("""
         SELECT
             timestamp,
+            device_path,
             device_name,
             ip,
             event

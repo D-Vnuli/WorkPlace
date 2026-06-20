@@ -586,13 +586,14 @@ class MainWindow(QMainWindow):
 
         self.log_table = QTableWidget()
 
-        self.log_table.setColumnCount(4)
+        self.log_table.setColumnCount(5)
 
         self.log_table.setAlternatingRowColors(True)
         self.log_table.setShowGrid(True)
 
         self.log_table.setHorizontalHeaderLabels([
             "Время",
+            "Ветка",
             "Устройство",
             "IP",
             "Событие"
@@ -625,6 +626,10 @@ class MainWindow(QMainWindow):
 
         header.setSectionResizeMode(
             3,
+            QHeaderView.ResizeMode.Stretch
+        )
+        header.setSectionResizeMode(
+            4,
             QHeaderView.ResizeMode.Stretch
         )
 
@@ -859,8 +864,12 @@ class MainWindow(QMainWindow):
 
         for row_index, row in enumerate(events):
             timestamp = row[0]
-            try:
+            device_path = row[1]
+            device_name = row[2]
+            ip = row[3]
+            event = row[4]
 
+            try:
                 dt = datetime.strptime(
                     timestamp,
                     "%Y-%m-%d %H:%M:%S"
@@ -872,55 +881,25 @@ class MainWindow(QMainWindow):
 
             except Exception:
                 pass
-            device_name = row[1]
-            ip = row[2]
-            event = row[3]
 
-            time_item = QTableWidgetItem(timestamp)
-            time_item.setTextAlignment(
-                Qt.AlignmentFlag.AlignCenter
-            )
+            items = [
+                QTableWidgetItem(timestamp),
+                QTableWidgetItem(device_path if device_path else ""),
+                QTableWidgetItem(device_name),
+                QTableWidgetItem(ip if ip else ""),
+                QTableWidgetItem(event)
+            ]
 
-            device_item = QTableWidgetItem(device_name)
-            device_item.setTextAlignment(
-                Qt.AlignmentFlag.AlignCenter
-            )
+            for column_index, item in enumerate(items):
+                item.setTextAlignment(
+                    Qt.AlignmentFlag.AlignCenter
+                )
 
-            ip_item = QTableWidgetItem(
-                ip if ip else ""
-            )
-            ip_item.setTextAlignment(
-                Qt.AlignmentFlag.AlignCenter
-            )
-
-            event_item = QTableWidgetItem(event)
-            event_item.setTextAlignment(
-                Qt.AlignmentFlag.AlignCenter
-            )
-
-            self.log_table.setItem(
-                row_index,
-                0,
-                time_item
-            )
-
-            self.log_table.setItem(
-                row_index,
-                1,
-                device_item
-            )
-
-            self.log_table.setItem(
-                row_index,
-                2,
-                ip_item
-            )
-
-            self.log_table.setItem(
-                row_index,
-                3,
-                event_item
-            )
+                self.log_table.setItem(
+                    row_index,
+                    column_index,
+                    item
+                )
 
     def clear_log(self):
         result = QMessageBox.question(
@@ -933,11 +912,14 @@ class MainWindow(QMainWindow):
             self.db.clear_events()
             self.load_events()
 
-    def add_event_to_log(self, device_name, ip, event_text):
+    def add_event_to_log(self, device_id, device_name, ip, event_text):
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        device_path = self.db.get_device_path(device_id)
 
         self.db.add_event(
             timestamp,
+            device_path,
             device_name,
             ip,
             event_text
@@ -945,12 +927,20 @@ class MainWindow(QMainWindow):
 
         self.add_event_row_to_table(
             timestamp,
+            device_path,
             device_name,
             ip,
             event_text
         )
 
-    def add_event_row_to_table(self, timestamp, device_name, ip, event_text):
+    def add_event_row_to_table(
+            self,
+            timestamp,
+            device_path,
+            device_name,
+            ip,
+            event_text):
+
         try:
             dt = datetime.strptime(
                 timestamp,
@@ -967,51 +957,24 @@ class MainWindow(QMainWindow):
         row_index = self.log_table.rowCount()
         self.log_table.insertRow(row_index)
 
-        time_item = QTableWidgetItem(timestamp)
-        time_item.setTextAlignment(
-            Qt.AlignmentFlag.AlignCenter
-        )
+        items = [
+            QTableWidgetItem(timestamp),
+            QTableWidgetItem(device_path if device_path else ""),
+            QTableWidgetItem(device_name),
+            QTableWidgetItem(ip if ip else ""),
+            QTableWidgetItem(event_text)
+        ]
 
-        device_item = QTableWidgetItem(device_name)
-        device_item.setTextAlignment(
-            Qt.AlignmentFlag.AlignCenter
-        )
+        for column_index, item in enumerate(items):
+            item.setTextAlignment(
+                Qt.AlignmentFlag.AlignCenter
+            )
 
-        ip_item = QTableWidgetItem(
-            ip if ip else ""
-        )
-        ip_item.setTextAlignment(
-            Qt.AlignmentFlag.AlignCenter
-        )
-
-        event_item = QTableWidgetItem(event_text)
-        event_item.setTextAlignment(
-            Qt.AlignmentFlag.AlignCenter
-        )
-
-        self.log_table.setItem(
-            row_index,
-            0,
-            time_item
-        )
-
-        self.log_table.setItem(
-            row_index,
-            1,
-            device_item
-        )
-
-        self.log_table.setItem(
-            row_index,
-            2,
-            ip_item
-        )
-
-        self.log_table.setItem(
-            row_index,
-            3,
-            event_item
-        )
+            self.log_table.setItem(
+                row_index,
+                column_index,
+                item
+            )
 
     def on_device_moved(self, device_id, parent_id):
         self.db.update_device_parent(
@@ -1094,6 +1057,7 @@ class MainWindow(QMainWindow):
 
                 if old_status == "offline":
                     self.add_event_to_log(
+                        device_id,
                         device_name,
                         ip,
                         "Связь восстановлена"
@@ -1139,6 +1103,7 @@ class MainWindow(QMainWindow):
                 del self.pending_offline[device_id]
 
             self.add_event_to_log(
+                device_id,
                 device_name,
                 ip,
                 "Устройство недоступно"
