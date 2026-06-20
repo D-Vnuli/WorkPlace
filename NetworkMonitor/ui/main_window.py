@@ -232,9 +232,186 @@ class DevicePropertiesDialog(QDialog):
         )
 
 
+class TextInputDialog(QDialog):
+
+    def __init__(
+            self,
+            title,
+            label_text,
+            dark_theme=False,
+            parent=None):
+
+        super().__init__(parent)
+
+        self.setWindowTitle(title)
+        self.setFixedSize(350, 150)
+
+        if dark_theme:
+            bg_color = "#252526"
+            text_color = "#F3F4F6"
+            input_bg = "#1E1E1E"
+            border = "#3F3F46"
+        else:
+            bg_color = "#FFFFFF"
+            text_color = "#111827"
+            input_bg = "#FFFFFF"
+            border = "#D1D5DB"
+
+        self.setStyleSheet(f"""
+        QDialog {{
+            background-color: {bg_color};
+        }}
+
+        QLabel {{
+            color: {text_color};
+        }}
+
+        QLineEdit {{
+            background-color: {input_bg};
+            color: {text_color};
+            border: 1px solid {border};
+            border-radius: 6px;
+            padding: 6px;
+        }}
+
+        QPushButton {{
+            background-color: #2563EB;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            padding: 7px 12px;
+        }}
+        """)
+
+        layout = QVBoxLayout(self)
+
+        label = QLabel(label_text)
+
+        self.edit = QLineEdit()
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok |
+            QDialogButtonBox.StandardButton.Cancel
+        )
+
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+
+        layout.addWidget(label)
+        layout.addWidget(self.edit)
+        layout.addWidget(buttons)
+
+    def get_text(self):
+        return self.edit.text().strip()
+
 class MainWindow(QMainWindow):
 
+    def show_warning_message(self, title, text):
+        current_theme = self.db.get_setting("theme", "light")
 
+        if current_theme == "dark":
+            bg_color = "#1E1E1E"
+            text_color = "#F3F4F6"
+            table_bg = "#252526"
+            border_color = "#3F3F46"
+        else:
+            bg_color = "#FFFFFF"
+            text_color = "#111827"
+            table_bg = "#F9FAFB"
+            border_color = "#D1D5DB"
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle(title)
+        dialog.setFixedSize(450, 210)
+
+        dialog.setStyleSheet(f"""
+        QDialog {{
+            background-color: {bg_color};
+        }}
+
+        QLabel {{
+            color: {text_color};
+            background: transparent;
+        }}
+
+        QPushButton {{
+            background-color: #2563EB;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            padding: 7px 12px;
+            min-width: 110px;
+        }}
+        """)
+
+        layout = QVBoxLayout(dialog)
+
+        header_layout = QVBoxLayout()
+
+        icon_label = QLabel("⚠")
+        icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        icon_label.setStyleSheet("""
+            font-size: 28px;
+            color: #FACC15;
+        """)
+
+        title_label = QLabel("Ошибка")
+        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title_label.setStyleSheet("""
+            font-size: 18px;
+            font-weight: bold;
+            color: #DC2626;
+        """)
+
+        header_layout.addWidget(icon_label)
+        header_layout.addWidget(title_label)
+
+        message_box = QLabel(text)
+        message_box.setWordWrap(True)
+        message_box.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        message_box.setStyleSheet(f"""
+            background-color: {table_bg};
+            border: 1px solid {border_color};
+            border-radius: 6px;
+            padding: 8px;
+            color: {text_color};
+        """)
+
+        btn_ok = QPushButton("OK")
+        btn_ok.clicked.connect(dialog.accept)
+
+        button_layout = QHBoxLayout()
+        button_layout.addStretch()
+        button_layout.addWidget(btn_ok)
+
+        layout.addLayout(header_layout)
+        layout.addSpacing(4)
+        layout.addWidget(message_box)
+        layout.addSpacing(4)
+        layout.addLayout(button_layout)
+
+        dialog.exec()
+
+    def input_text(self, title, label):
+
+        current_theme = self.db.get_setting(
+            "theme",
+            "light"
+        )
+
+        dialog = TextInputDialog(
+            title,
+            label,
+            dark_theme=(current_theme == "dark"),
+            parent=self
+        )
+
+        result = dialog.exec()
+
+        return (
+            dialog.get_text(),
+            result == QDialog.DialogCode.Accepted
+        )
 
     def get_app_dir(self):
         if getattr(sys, "frozen", False):
@@ -1142,8 +1319,7 @@ class MainWindow(QMainWindow):
             )
 
     def add_group(self):
-        name, ok = QInputDialog.getText(
-            self,
+        name, ok = self.input_text(
             "Группа",
             "Название группы:"
         )
@@ -1167,8 +1343,7 @@ class MainWindow(QMainWindow):
         self.load_devices()
 
     def add_device(self):
-        name, ok = QInputDialog.getText(
-            self,
+        name, ok = self.input_text(
             "Устройство",
             "Название устройства:"
         )
@@ -1176,13 +1351,24 @@ class MainWindow(QMainWindow):
         if not ok or not name:
             return
 
-        ip, ok = QInputDialog.getText(
-            self,
+        ip, ok = self.input_text(
             "IP адрес",
             "Введите IP:"
         )
 
         if not ok or not ip:
+            return
+
+        existing_device = self.db.ip_exists(ip)
+
+        if existing_device:
+            existing_id, existing_name = existing_device
+
+            self.show_warning_message(
+                "Дубликат IP адреса",
+                f"Устройство с IP адресом {ip} уже добавлено:\n\nУстройство: {existing_name}"
+            )
+
             return
 
         parent_id = None
@@ -1262,6 +1448,23 @@ class MainWindow(QMainWindow):
         if device_type == "group":
             new_ip = ""
 
+        if device_type != "group":
+            existing_device = self.db.ip_exists(
+                new_ip,
+                exclude_device_id=device_id
+            )
+
+            if existing_device:
+                existing_id, existing_name = existing_device
+
+                self.show_warning_message(
+                    "Дубликат IP адреса",
+                    f"Устройство с IP адресом {ip} уже добавлено:\n\nУстройство: {existing_name}"
+                )
+
+                self.load_devices()
+                return
+
         self.db.update_device(
             device_id,
             new_name,
@@ -1325,8 +1528,7 @@ class MainWindow(QMainWindow):
 
         device_id = item.data(0, Qt.ItemDataRole.UserRole)
 
-        new_name, ok = QInputDialog.getText(
-            self,
+        new_name, ok = self.input_text(
             "Переименование",
             "Новое название:"
         )

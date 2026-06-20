@@ -201,6 +201,29 @@ class Database:
 
         return cursor.fetchone()
 
+    def ip_exists(self, ip, exclude_device_id=None):
+        cursor = self.conn.cursor()
+
+        if exclude_device_id is None:
+            cursor.execute("""
+            SELECT id, name
+            FROM devices
+            WHERE ip = ?
+              AND type != 'group'
+            LIMIT 1
+            """, (ip,))
+        else:
+            cursor.execute("""
+            SELECT id, name
+            FROM devices
+            WHERE ip = ?
+              AND type != 'group'
+              AND id != ?
+            LIMIT 1
+            """, (ip, exclude_device_id))
+
+        return cursor.fetchone()
+
     def update_status(self, device_id, status):
         cursor = self.conn.cursor()
 
