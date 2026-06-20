@@ -123,6 +123,9 @@ class OfflineDevicesDialog(QDialog):
             Qt.WindowType.WindowStaysOnTopHint,
             True
         )
+        self.setWindowModality(
+            Qt.WindowModality.ApplicationModal
+        )
 
         layout = QVBoxLayout(self)
 
