@@ -867,10 +867,13 @@ class MainWindow(QMainWindow):
                         "Связь восстановлена"
                     )
 
+                    device_path = self.db.get_device_path(device_id)
+
                     self.notifications.device_online(
                         device_id,
                         device_name,
-                        ip
+                        ip,
+                        device_path
                     )
 
                 if not self.properties_window_open:

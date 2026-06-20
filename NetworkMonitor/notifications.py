@@ -30,6 +30,7 @@ class OfflineDevicesDialog(QDialog):
             title,
             devices,
             dark_theme=False,
+            positive=False,
             parent=None):
         super().__init__(parent)
 
@@ -127,13 +128,13 @@ class OfflineDevicesDialog(QDialog):
 
         header_layout = QHBoxLayout()
 
-        icon_label = QLabel("⚠")
+        icon_label = QLabel("✅" if positive else "⚠")
         icon_label.setStyleSheet("""
             font-size: 24px;
             color: #B00020;
         """)
 
-        title_label = QLabel("Потеря связи")
+        title_label = QLabel("Связь восстановлена" if positive else "Потеря связи")
         title_label.setStyleSheet("""
             font-size: 20px;
             font-weight: bold;
@@ -147,7 +148,9 @@ class OfflineDevicesDialog(QDialog):
         layout.addLayout(header_layout)
 
         description = QLabel(
-            f"Недоступно устройств: {len(devices)}"
+            f"Восстановлено устройств: {len(devices)}"
+            if positive
+            else f"Недоступно устройств: {len(devices)}"
         )
 
         description.setStyleSheet("""
@@ -383,6 +386,7 @@ class NotificationManager:
             title,
             devices,
             dark_theme=(current_theme == "dark"),
+            positive=False,
             parent=self.parent
         )
 
@@ -408,15 +412,24 @@ class NotificationManager:
             self,
             device_id,
             name,
-            ip):
+            ip,
+            device_path=None):
 
         title = "Связь восстановлена"
 
-        message = (
-            f"{name}\n"
-            f"{ip}\n"
-            f"Устройство снова в сети"
-        )
+        if device_path:
+            message = (
+                f"{device_path}\n"
+                f"{name}\n"
+                f"{ip}\n"
+                f"Устройство снова в сети"
+            )
+        else:
+            message = (
+                f"{name}\n"
+                f"{ip}\n"
+                f"Устройство снова в сети"
+            )
 
         self.show_tray_message(
             title,
@@ -424,6 +437,54 @@ class NotificationManager:
             QSystemTrayIcon.MessageIcon.Information,
             6000
         )
+
+        self.show_online_popup(
+            title,
+            name,
+            ip,
+            device_path
+        )
+
+    def show_online_popup(
+            self,
+            title,
+            name,
+            ip,
+            device_path=None):
+
+        current_theme = self.parent.db.get_setting(
+            "theme",
+            "light"
+        )
+
+        devices = [
+            (
+                0,
+                name,
+                ip,
+                device_path
+            )
+        ]
+
+        dialog = OfflineDevicesDialog(
+            title,
+            devices,
+            dark_theme=(current_theme == "dark"),
+            positive=True,
+            parent=self.parent
+        )
+
+        dialog.setWindowTitle("Устройство снова в сети")
+
+        self.active_popups.append(dialog)
+
+        dialog.destroyed.connect(
+            lambda: self.remove_popup(dialog)
+        )
+
+        dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
 
     def show_tray_message(
             self,
