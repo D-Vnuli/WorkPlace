@@ -256,6 +256,25 @@ class OfflineDevicesDialog(QDialog):
         button_layout.addWidget(self.btn_ok)
         layout.addLayout(button_layout)
 
+    def add_device(self, device):
+
+        row = self.table.rowCount()
+        self.table.insertRow(row)
+
+        _, name, ip, path = device
+
+        path_item = QTableWidgetItem(path if path else "")
+        name_item = QTableWidgetItem(name)
+        ip_item = QTableWidgetItem(ip if ip else "")
+
+        for item in (path_item, name_item, ip_item):
+            item.setTextAlignment(
+                Qt.AlignmentFlag.AlignCenter
+            )
+
+        self.table.setItem(row, 0, path_item)
+        self.table.setItem(row, 1, name_item)
+        self.table.setItem(row, 2, ip_item)
 
 class NotificationManager:
 
@@ -282,6 +301,8 @@ class NotificationManager:
         )
 
         self.active_popups = []
+        self.offline_dialog = None
+        self.offline_device_ids = set()
 
     def device_offline(
             self,
@@ -382,6 +403,26 @@ class NotificationManager:
             "light"
         )
 
+        if self.offline_dialog and self.offline_dialog.isVisible():
+
+            for device in devices:
+
+                device_id = device[0]
+
+                if device_id in self.offline_device_ids:
+                    continue
+
+                self.offline_device_ids.add(device_id)
+
+                self.offline_dialog.add_device(device)
+
+            self.offline_dialog.raise_()
+            self.offline_dialog.activateWindow()
+
+            return
+
+        self.offline_device_ids = set(device_ids)
+
         dialog = OfflineDevicesDialog(
             title,
             devices,
@@ -391,18 +432,22 @@ class NotificationManager:
         )
 
         dialog.accepted.connect(
-            lambda: self.parent.db.acknowledge_notifications(device_ids)
+            lambda: self.parent.db.acknowledge_notifications(
+                list(self.offline_device_ids)
+            )
         )
 
         dialog.finished.connect(
-            lambda: self.parent.db.acknowledge_notifications(device_ids)
+            lambda: self.parent.db.acknowledge_notifications(
+                list(self.offline_device_ids)
+            )
         )
-
-        self.active_popups.append(dialog)
 
         dialog.destroyed.connect(
-            lambda: self.remove_popup(dialog)
+            self.clear_offline_dialog
         )
+
+        self.offline_dialog = dialog
 
         dialog.show()
         dialog.raise_()
@@ -507,3 +552,8 @@ class NotificationManager:
 
         if dialog in self.active_popups:
             self.active_popups.remove(dialog)
+
+    def clear_offline_dialog(self):
+
+        self.offline_dialog = None
+        self.offline_device_ids.clear()
