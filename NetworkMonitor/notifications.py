@@ -25,48 +25,98 @@ def resource_path(relative_path):
 
 class OfflineDevicesDialog(QDialog):
 
-    def __init__(self, title, devices, parent=None):
+    def __init__(
+            self,
+            title,
+            devices,
+            dark_theme=False,
+            parent=None):
         super().__init__(parent)
 
         self.setWindowTitle(title)
-        self.resize(600, 350)
-        self.setStyleSheet("""
-        QDialog {
-            background-color: #FFFFFF;
-            color: #111827;
-        }
 
-        QLabel {
-            color: #111827;
-        }
+        self.resize(900, 500)
+        self.setMinimumSize(900, 500)
 
-        QTableWidget {
-            background-color: #FFFFFF;
-            color: #111827;
-            gridline-color: #D1D5DB;
-            border: 1px solid #D1D5DB;
-        }
+        if dark_theme:
 
-        QTableWidget::item {
-            color: #111827;
-        }
+            self.setStyleSheet("""
+            QDialog {
+                background-color: #1E1E1E;
+                color: #F3F4F6;
+            }
 
-        QHeaderView::section {
-            background-color: #F3F4F6;
-            color: #111827;
-            border: 1px solid #D1D5DB;
-            padding: 6px;
-            font-weight: bold;
-        }
+            QLabel {
+                color: #F3F4F6;
+            }
 
-        QPushButton {
-            background-color: #2563EB;
-            color: white;
-            border: none;
-            border-radius: 6px;
-            padding: 7px 12px;
-        }
-        """)
+            QTableWidget {
+                background-color: #252526;
+                color: #F3F4F6;
+                gridline-color: #3F3F46;
+                border: 1px solid #3F3F46;
+            }
+
+            QTableWidget::item {
+                color: #F3F4F6;
+            }
+
+            QHeaderView::section {
+                background-color: #2D2D30;
+                color: #F3F4F6;
+                border: 1px solid #3F3F46;
+                padding: 6px;
+                font-weight: bold;
+            }
+
+            QPushButton {
+                background-color: #2563EB;
+                color: white;
+                border: none;
+                border-radius: 6px;
+                padding: 7px 12px;
+            }
+            """)
+
+        else:
+
+            self.setStyleSheet("""
+            QDialog {
+                background-color: #FFFFFF;
+                color: #111827;
+            }
+
+            QLabel {
+                color: #111827;
+            }
+
+            QTableWidget {
+                background-color: #FFFFFF;
+                color: #111827;
+                gridline-color: #D1D5DB;
+                border: 1px solid #D1D5DB;
+            }
+
+            QTableWidget::item {
+                color: #111827;
+            }
+
+            QHeaderView::section {
+                background-color: #F3F4F6;
+                color: #111827;
+                border: 1px solid #D1D5DB;
+                padding: 6px;
+                font-weight: bold;
+            }
+
+            QPushButton {
+                background-color: #2563EB;
+                color: white;
+                border: none;
+                border-radius: 6px;
+                padding: 7px 12px;
+            }
+            """)
 
         self.setWindowFlag(
             Qt.WindowType.WindowStaysOnTopHint,
@@ -142,6 +192,11 @@ class OfflineDevicesDialog(QDialog):
 
         table_header.setSectionResizeMode(
             1,
+            QHeaderView.ResizeMode.Stretch
+        )
+
+        table_header.setSectionResizeMode(
+            2,
             QHeaderView.ResizeMode.Stretch
         )
 
@@ -319,10 +374,16 @@ class NotificationManager:
             devices,
             device_ids):
 
+        current_theme = self.parent.db.get_setting(
+            "theme",
+            "light"
+        )
+
         dialog = OfflineDevicesDialog(
             title,
             devices,
-            self.parent
+            dark_theme=(current_theme == "dark"),
+            parent=self.parent
         )
 
         dialog.accepted.connect(

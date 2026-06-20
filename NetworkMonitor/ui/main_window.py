@@ -1285,11 +1285,66 @@ class MainWindow(QMainWindow):
 
         device_id = item.data(0, Qt.ItemDataRole.UserRole)
 
-        result = QMessageBox.question(
-            self,
-            "Удаление",
-            "Удалить выбранную ветку?"
+        msg = QMessageBox(self)
+
+        msg.setWindowTitle("Удаление")
+        msg.setText("Удалить выбранную ветку?")
+
+        msg.setStandardButtons(
+            QMessageBox.StandardButton.Yes |
+            QMessageBox.StandardButton.No
         )
+
+        current_theme = self.db.get_setting(
+            "theme",
+            "light"
+        )
+
+        if current_theme == "dark":
+
+            msg.setStyleSheet("""
+            QMessageBox {
+                background-color: #252526;
+                color: #F3F4F6;
+            }
+
+            QLabel {
+                color: #F3F4F6;
+            }
+
+            QPushButton {
+                background-color: #2563EB;
+                color: white;
+                border: none;
+                border-radius: 6px;
+                padding: 7px 12px;
+                min-width: 80px;
+            }
+            """)
+
+        else:
+
+            msg.setStyleSheet("""
+            QMessageBox {
+                background-color: white;
+                color: #111827;
+            }
+
+            QLabel {
+                color: #111827;
+            }
+
+            QPushButton {
+                background-color: #2563EB;
+                color: white;
+                border: none;
+                border-radius: 6px;
+                padding: 7px 12px;
+                min-width: 80px;
+            }
+            """)
+
+        result = msg.exec()
 
         if result == QMessageBox.StandardButton.Yes:
             self.db.delete_branch(device_id)
