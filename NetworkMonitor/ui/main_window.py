@@ -1658,7 +1658,7 @@ class MainWindow(QMainWindow):
 
         expanded_items = self.get_expanded_items()
 
-        if not expanded_items:
+        if not expanded_items and self.tree.topLevelItemCount() == 0:
             expanded_items = self.get_saved_expanded_items()
 
         self.tree.clear()
