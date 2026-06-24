@@ -954,7 +954,7 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
-        row_index = self.log_table.rowCount()
+        row_index = 0
         self.log_table.insertRow(row_index)
 
         items = [
@@ -1646,6 +1646,16 @@ class MainWindow(QMainWindow):
             self.delete_item()
 
     def load_devices(self):
+        selected_device_id = None
+
+        current_item = self.tree.currentItem()
+
+        if current_item:
+            selected_device_id = current_item.data(
+                0,
+                Qt.ItemDataRole.UserRole
+            )
+
         expanded_items = self.get_expanded_items()
 
         if not expanded_items:
@@ -1811,6 +1821,11 @@ class MainWindow(QMainWindow):
 
             if device_id in expanded_items:
                 item.setExpanded(True)
+
+            if selected_device_id and selected_device_id in items:
+                self.tree.setCurrentItem(
+                    items[selected_device_id][0]
+                )
 
         self.update_counters(devices)
 
