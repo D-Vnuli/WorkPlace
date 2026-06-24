@@ -1661,176 +1661,151 @@ class MainWindow(QMainWindow):
         if not expanded_items and self.tree.topLevelItemCount() == 0:
             expanded_items = self.get_saved_expanded_items()
 
-        self.tree.clear()
+        self.tree.setUpdatesEnabled(False)
 
-        devices = self.db.get_devices()
-        current_theme = self.db.get_setting(
-            "theme",
-            "light"
-        )
-        items = {}
+        try:
+            self.tree.clear()
 
-        offline_by_parent = {}
+            devices = self.db.get_devices()
+            current_theme = self.db.get_setting(
+                "theme",
+                "light"
+            )
 
-        parent_map = {}
+            items = {}
+            offline_by_parent = {}
+            parent_map = {}
 
-        for row in devices:
-            device_id = row[0]
-            parent_id = row[1]
+            for row in devices:
+                device_id = row[0]
+                parent_id = row[1]
 
-            parent_map[device_id] = parent_id
+                parent_map[device_id] = parent_id
 
-        def mark_parent_offline(parent_id):
-            while parent_id:
-                offline_by_parent[parent_id] = True
-                parent_id = parent_map.get(parent_id)
+            def mark_parent_offline(parent_id):
+                while parent_id:
+                    offline_by_parent[parent_id] = True
+                    parent_id = parent_map.get(parent_id)
 
-        for row in devices:
-            parent_id = row[1]
-            device_type = row[4]
-            status = row[5]
+            for row in devices:
+                parent_id = row[1]
+                device_type = row[4]
+                status = row[5]
 
-            if device_type != "group" and status == "offline":
-                mark_parent_offline(parent_id)
+                if device_type != "group" and status == "offline":
+                    mark_parent_offline(parent_id)
 
-        for row in devices:
-            device_id = row[0]
-            parent_id = row[1]
-            name = row[2]
-            ip = row[3]
-            device_type = row[4]
-            status = row[5]
+            for row in devices:
+                device_id = row[0]
+                parent_id = row[1]
+                name = row[2]
+                ip = row[3]
+                device_type = row[4]
+                status = row[5]
 
-            if device_type == "group":
-                if offline_by_parent.get(device_id):
-                    display_name = f"⚠️  📁 {name}"
+                if device_type == "group":
+                    if offline_by_parent.get(device_id):
+                        display_name = f"⚠️  📁 {name}"
+                    else:
+                        display_name = f"📁  {name}"
+
+                    item = QTreeWidgetItem([
+                        display_name,
+                        "",
+                        ""
+                    ])
+
                 else:
-                    display_name = f"📁  {name}"
+                    if status == "online":
+                        display_status = "● В сети"
+                    elif status == "offline":
+                        display_status = "● Не в сети"
+                    else:
+                        display_status = "● Нет данных"
 
-                item = QTreeWidgetItem([
-                    display_name,
-                    "",
-                    ""
-                ])
+                    if status == "offline":
+                        display_name = f"⚠️  {name}"
+                    elif offline_by_parent.get(device_id):
+                        display_name = f"⚠️  {name}"
+                    else:
+                        display_name = f"  {name}"
 
+                    item = QTreeWidgetItem([
+                        display_name,
+                        ip if ip else "",
+                        display_status
+                    ])
 
-            else:
+                if device_type == "group":
+                    font = item.font(0)
+                    font.setBold(True)
+                    item.setFont(0, font)
 
-                if status == "online":
+                    if current_theme == "dark":
+                        if offline_by_parent.get(device_id):
+                            item.setForeground(0, QColor("#FCA5A5"))
+                            item.setBackground(0, QColor("#3A2525"))
+                            item.setBackground(1, QColor("#3A2525"))
+                            item.setBackground(2, QColor("#3A2525"))
+                        else:
+                            item.setForeground(0, QColor("#F3F4F6"))
+                    else:
+                        if offline_by_parent.get(device_id):
+                            item.setForeground(0, QColor("#DC2626"))
+                            item.setBackground(0, QColor("#FEF2F2"))
+                            item.setBackground(1, QColor("#FEF2F2"))
+                            item.setBackground(2, QColor("#FEF2F2"))
+                        else:
+                            item.setForeground(0, QColor("#111827"))
 
-                    display_status = "● В сети"
+                elif status == "online":
+                    item.setForeground(2, QColor("#16A34A"))
 
                 elif status == "offline":
-
-                    display_status = "● Не в сети"
-
-                else:
-
-                    display_status = "● Нет данных"
-
-                if status == "offline":
-
-                    display_name = f"⚠️  {name}"
-
-
-                elif offline_by_parent.get(device_id):
-
-                    display_name = f"⚠️  {name}"
-
+                    item.setForeground(2, QColor("#DC2626"))
 
                 else:
+                    item.setForeground(2, QColor("#6B7280"))
 
-                    display_name = f"  {name}"
+                item.setData(
+                    0,
+                    Qt.ItemDataRole.UserRole,
+                    device_id
+                )
 
-                item = QTreeWidgetItem([
+                items[device_id] = (
+                    item,
+                    parent_id
+                )
 
-                    display_name,
+            for device_id, data in items.items():
+                item = data[0]
+                parent_id = data[1]
 
-                    ip if ip else "",
-
-                    display_status
-
-                ])
-
-            if device_type == "group":
-                font = item.font(0)
-                font.setBold(True)
-
-                item.setFont(0, font)
-
-                if current_theme == "dark":
-
-                    if offline_by_parent.get(device_id):
-                        item.setForeground(0, QColor("#FCA5A5"))
-
-                        item.setBackground(0, QColor("#3A2525"))
-                        item.setBackground(1, QColor("#3A2525"))
-                        item.setBackground(2, QColor("#3A2525"))
-
-
-                    else:
-
-                        item.setForeground(0, QColor("#F3F4F6"))
-
+                if parent_id and parent_id in items:
+                    parent_item = items[parent_id][0]
+                    parent_item.addChild(item)
                 else:
+                    self.tree.addTopLevelItem(item)
 
-                    if offline_by_parent.get(device_id):
-                        item.setForeground(0, QColor("#DC2626"))
+            for device_id, data in items.items():
+                item = data[0]
 
-                        item.setBackground(0, QColor("#FEF2F2"))
-                        item.setBackground(1, QColor("#FEF2F2"))
-                        item.setBackground(2, QColor("#FEF2F2"))
-
-                    else:
-
-                        item.setForeground(0, QColor("#111827"))
-
-            elif status == "online":
-                item.setForeground(2, QColor("#16A34A"))
-
-            elif status == "offline":
-                item.setForeground(2, QColor("#DC2626"))
-
-            else:
-                item.setForeground(2, QColor("#6B7280"))
-
-            item.setData(
-                0,
-                Qt.ItemDataRole.UserRole,
-                device_id
-            )
-
-            items[device_id] = (
-                item,
-                parent_id
-            )
-
-        for device_id, data in items.items():
-            item = data[0]
-            parent_id = data[1]
-
-            if parent_id and parent_id in items:
-                parent_item = items[parent_id][0]
-                parent_item.addChild(item)
-
-            else:
-                self.tree.addTopLevelItem(item)
-
-        for device_id, data in items.items():
-            item = data[0]
-
-            if device_id in expanded_items:
-                item.setExpanded(True)
+                if device_id in expanded_items:
+                    item.setExpanded(True)
 
             if selected_device_id and selected_device_id in items:
                 self.tree.setCurrentItem(
                     items[selected_device_id][0]
                 )
 
-        self.update_counters(devices)
+            self.update_counters(devices)
 
-        if hasattr(self, "ping_worker"):
-            self.refresh_ping_worker(devices)
+            if hasattr(self, "ping_worker"):
+                self.refresh_ping_worker(devices)
+
+        finally:
+            self.tree.setUpdatesEnabled(True)
 
     def closeEvent(self, event):
         self.save_expanded_items()
